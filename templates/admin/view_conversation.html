@@ -1,0 +1,156 @@
+{% extends 'admin/base.html' %}
+
+{% block title %}عرض المحادثة - لوحة تحكم ياسمين GPT{% endblock %}
+
+{% block extra_css %}
+<style>
+    .chat-container {
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+    
+    .message-container {
+        margin-bottom: 20px;
+    }
+    
+    .message {
+        border-radius: 10px;
+        padding: 15px;
+        position: relative;
+        max-width: 80%;
+    }
+    
+    .user-message {
+        background-color: #e9f5ff;
+        border: 1px solid #c6e3ff;
+        margin-left: auto;
+    }
+    
+    .assistant-message {
+        background-color: #f0f0f0;
+        border: 1px solid #e0e0e0;
+        margin-right: auto;
+    }
+    
+    .message-header {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid rgba(0,0,0,0.1);
+    }
+    
+    .message-role {
+        font-weight: bold;
+    }
+    
+    .message-time {
+        font-size: 0.8rem;
+        color: #6c757d;
+    }
+    
+    .message-content {
+        white-space: pre-wrap;
+        overflow-wrap: break-word;
+    }
+    
+    .conversation-metadata {
+        margin-bottom: 20px;
+        padding: 10px;
+        background-color: #f8f9fa;
+        border-radius: 10px;
+    }
+    
+    .metadata-item {
+        margin-bottom: 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Page Title -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3">عرض المحادثة: {{ conversation.title }}</h1>
+        <div>
+            <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deleteModal">
+                <i class="fas fa-trash"></i> حذف المحادثة
+            </button>
+            <a href="{{ url_for('admin_conversations') }}" class="btn btn-secondary ms-2">
+                <i class="fas fa-arrow-right"></i> العودة للقائمة
+            </a>
+        </div>
+    </div>
+    
+    <!-- Conversation Metadata -->
+    <div class="card conversation-metadata">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4">
+                    <p class="metadata-item"><strong>العنوان:</strong> {{ conversation.title }}</p>
+                </div>
+                <div class="col-md-4">
+                    <p class="metadata-item"><strong>تاريخ الإنشاء:</strong> {{ conversation.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                </div>
+                <div class="col-md-4">
+                    <p class="metadata-item"><strong>آخر تحديث:</strong> {{ conversation.updated_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Conversation Messages -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="card-title mb-0">محتوى المحادثة ({{ conversation.messages|length }} رسائل)</h5>
+        </div>
+        <div class="card-body">
+            <div class="chat-container">
+                {% if conversation.messages %}
+                    {% for message in conversation.messages %}
+                        <div class="message-container d-flex">
+                            <div class="message {% if message.role == 'user' %}user-message{% else %}assistant-message{% endif %}">
+                                <div class="message-header">
+                                    <span class="message-role">
+                                        {% if message.role == 'user' %}
+                                            <i class="fas fa-user"></i> المستخدم
+                                        {% else %}
+                                            <i class="fas fa-robot"></i> المساعد
+                                        {% endif %}
+                                    </span>
+                                    <span class="message-time">{{ message.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+                                </div>
+                                <div class="message-content">{{ message.content }}</div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-center">لا توجد رسائل في هذه المحادثة</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">تأكيد الحذف</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>هل أنت متأكد من رغبتك في حذف هذه المحادثة؟</p>
+                <p class="text-danger">هذا الإجراء لا يمكن التراجع عنه.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+                <form action="{{ url_for('admin_delete_conversation', conversation_id=conversation.id) }}" method="post">
+                    <button type="submit" class="btn btn-danger">تأكيد الحذف</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
