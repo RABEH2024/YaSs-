@@ -4,9 +4,9 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    startCommand: gunicorn main:app
     envVars:
-      - key: DATABASE_URL_EXTERNAL
+      - key: SQLALCHEMY_DATABASE_URI
         fromDatabase:
           name: yasmin_chat
           property: connectionString
