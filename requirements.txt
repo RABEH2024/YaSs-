@@ -1,5 +1,7 @@
-flask
-flask_sqlalchemy
-gunicorn
-psycopg2-binary
-requests
+flask==2.3.3
+flask-sqlalchemy==3.1.1
+gunicorn>=21.0.0,<23.0.0  # Specify a range for Gunicorn
+psycopg2-binary>=2.9.0   # For PostgreSQL on Render
+requests>=2.31.0
+email-validator>=2.1.0   # Often a dependency of Flask extensions, good to include
+python-dotenv>=1.0.0     # Useful for local development with .env files (optional)
