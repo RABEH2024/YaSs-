@@ -1,0 +1,38 @@
+# Python Bytecode and Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+.env/          # Exclude if you use python-dotenv locally for secrets
+secrets.env    # Exclude any custom secret files
+
+# IDE / Editor configuration
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Database files (if using SQLite locally)
+*.sqlite3
+*.db
+
+# Render specific (usually not needed unless you customize)
+.render/
+
+# Logs
+logs/
+*.log
+
+# Coverage reports
+.coverage
+coverage.xml
+htmlcov/
