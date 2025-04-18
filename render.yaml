@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: yasmin-chat
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: DATABASE_URL_EXTERNAL
+        fromDatabase:
+          name: yasmin_chat
+          property: connectionString
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
