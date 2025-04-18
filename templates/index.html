@@ -3,78 +3,70 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ app_title }}</title> <!-- Dynamic Title -->
+    <title>Yasmin GPT Chat</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
-    <!-- Use a reliable CDN for Font Awesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <!-- Google Fonts: Cairo -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Fonts for better Arabic support -->
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💬</text></svg>"> <!-- Simple Favicon -->
 </head>
 <body>
     <!-- Main Container -->
     <div class="app-container">
         <!-- Sidebar for settings and conversations -->
         <div id="settings-sidebar">
-            <div class="sidebar-header"> <!-- Added header for better structure -->
-                 <h2>{{ app_title }}</h2>
-                 <button id="mobile-close-sidebar" class="icon-button mobile-only"> <!-- Close button for mobile -->
-                     <i class="fas fa-times"></i>
-                 </button>
-            </div>
-
+            <h2>ياسمين GPT</h2>
+            
             <!-- New Conversation Button -->
             <button id="new-conversation" class="primary-button">
                 <i class="fas fa-plus"></i> محادثة جديدة
             </button>
-
-            <div class="sidebar-section conversations-section"> <!-- Added class -->
-                <h3>المحادثات السابقة</h3>
+            
+            <div class="sidebar-section">
+                <h3>المحادثات</h3>
                 <div id="conversations-list" class="conversations-container">
-                    <div class="empty-state">جاري تحميل المحادثات...</div>
+                    <!-- Conversations will be listed here dynamically -->
+                    <div class="empty-state">لا توجد محادثات سابقة</div>
                 </div>
             </div>
-
-            <div class="sidebar-section settings-section"> <!-- Added class -->
+            
+            <div class="sidebar-section">
                 <h3>الإعدادات</h3>
-
+                
                 <!-- Model Selection -->
                 <div class="setting-item">
                     <label for="model-select">النموذج:</label>
                     <select id="model-select">
-                        <option value="">جاري التحميل...</option>
-                        <!-- Models loaded dynamically -->
+                        <option value="mistralai/mistral-7b-instruct">Mistral 7B</option>
+                        <!-- Other models will be loaded dynamically -->
                     </select>
                 </div>
-
+                
                 <!-- Temperature Control -->
                 <div class="setting-item">
-                    <label for="temperature-slider">درجة الإبداع (Temperature):</label>
+                    <label for="temperature-slider">درجة الإبداع:</label>
                     <div class="slider-container">
                         <input type="range" id="temperature-slider" min="0" max="1" step="0.1" value="0.7">
                         <span id="temperature-value">0.7</span>
                     </div>
                 </div>
-
+                
                 <!-- Max Tokens -->
                 <div class="setting-item">
-                    <label for="max-tokens-input">الحد الأقصى للرد (Tokens):</label>
-                    <input type="number" id="max-tokens-input" value="512" min="50" max="4096" step="10"> <!-- Increased max -->
+                    <label for="max-tokens-input">الحد الأقصى للرموز:</label>
+                    <input type="number" id="max-tokens-input" value="512" min="50" max="4000">
                 </div>
-
+                
                 <!-- Dark Mode Toggle -->
-                <div class="setting-item toggle-setting"> <!-- Added class -->
+                <div class="setting-item">
                     <label for="dark-mode-toggle">الوضع الليلي:</label>
                     <label class="switch">
                         <input type="checkbox" id="dark-mode-toggle">
                         <span class="slider round"></span>
                     </label>
                 </div>
-
+                
                 <!-- Text-to-Speech Toggle -->
-                <div class="setting-item toggle-setting"> <!-- Added class -->
+                <div class="setting-item">
                     <label for="tts-toggle">قراءة الردود صوتياً:</label>
                     <label class="switch">
                         <input type="checkbox" id="tts-toggle">
@@ -82,97 +74,72 @@
                     </label>
                 </div>
             </div>
-
+            
             <div class="sidebar-footer">
-                 <span><a href="https://github.com/your-username/yasmin-gpt-chat" target="_blank" rel="noopener noreferrer">المصدر على GitHub</a></span> <!-- Example link -->
-                <!-- Toggle button might not be needed if using mobile overlay -->
-                 <!-- <button id="toggle-sidebar" class="icon-button desktop-only">
+                <span>تم تطويره بواسطة ياسمين</span>
+                <button id="toggle-sidebar" class="icon-button">
                     <i class="fas fa-chevron-right"></i>
-                </button> -->
+                </button>
             </div>
         </div>
-
+        
         <!-- Main Chat Area -->
         <div id="chat-container">
-            <!-- Header (Optional - can show current model or conversation title) -->
-            <div class="chat-header">
-                 <button id="mobile-menu-toggle" class="icon-button mobile-only"> <!-- Button to open sidebar on mobile -->
-                     <i class="fas fa-bars"></i>
-                 </button>
-                 <span id="current-conversation-title">محادثة جديدة</span>
-                 <!-- Maybe add current model display here -->
-            </div>
-
             <!-- Offline Indicator -->
-            <div id="offline-indicator" style="display: none;"> <!-- Hide initially -->
+            <div id="offline-indicator">
                 <i class="fas fa-exclamation-triangle"></i>
-                <span>أنت غير متصل أو الخدمة غير متاحة حالياً. الردود ستكون محدودة.</span>
+                أنت غير متصل بالإنترنت
             </div>
-
+            
             <!-- Messages Container -->
             <div id="messages">
-                <!-- Initial Welcome message -->
-                <div class="message-bubble ai-bubble welcome-message">
-                    <p>السلام عليكم! أنا ياسمين، مساعدتك الرقمية. كيف يمكنني المساعدة اليوم؟</p>
+                <!-- Welcome message -->
+                <div class="message-bubble ai-bubble">
+                    <p>السلام عليكم! أنا ياسمين، مساعدتك الرقمية بالعربية. كيف يمكنني مساعدتك اليوم؟</p>
                     <div class="message-actions">
-                        <button class="copy-btn" title="نسخ الرد"><i class="fas fa-copy"></i></button>
-                        <button class="speak-btn" title="قراءة الرد"><i class="fas fa-volume-up"></i></button>
-                        <!-- No regenerate for welcome message -->
+                        <button class="copy-btn" title="نسخ"><i class="fas fa-copy"></i></button>
+                        <button class="speak-btn" title="استماع"><i class="fas fa-volume-up"></i></button>
                     </div>
                 </div>
-                <!-- Messages added dynamically -->
+                
+                <!-- Messages will be added here -->
             </div>
-
-            <!-- Typing Indicator Placeholder -->
-            <div id="typing-indicator" class="typing-indicator" style="display: none;">
-                 <div class="dot-flashing"></div> <!-- Simple CSS animation -->
-                 <span>ياسمين تكتب...</span>
-            </div>
-
-
+            
             <!-- Input Area -->
             <div id="input-area">
                 <div id="input-container">
-                    <textarea id="message-input" placeholder="اكتب رسالتك هنا..." rows="1"></textarea> <!-- Start with 1 row -->
-                    <button id="send-button" title="إرسال (Enter)">
+                    <textarea id="message-input" placeholder="اكتب رسالتك هنا... (Enter للإرسال، Shift+Enter لإضافة سطر)"></textarea>
+                    <button id="send-button">
                         <i class="fas fa-paper-plane"></i>
                     </button>
                 </div>
                 <div class="input-footer">
-                    <span class="typing-hint">اضغط Enter للإرسال, Shift+Enter لسطر جديد</span>
-                     <!-- Mobile settings button removed, use sidebar toggle -->
+                    <span class="typing-hint">Enter للإرسال • Shift+Enter لسطر جديد</span>
+                    <button id="mobile-settings" class="icon-button">
+                        <i class="fas fa-cog"></i>
+                    </button>
                 </div>
             </div>
         </div>
     </div>
-
-    <!-- Mobile Overlay for Sidebar -->
-    <div id="sidebar-overlay" class="mobile-only"></div>
-
+    
+    <!-- Mobile Menu Button (only visible on small screens) -->
+    <button id="mobile-menu" class="icon-button">
+        <i class="fas fa-bars"></i>
+    </button>
+    
     <!-- Confirmation Modal -->
     <div id="confirm-modal" class="modal">
         <div class="modal-content">
-            <h3>تأكيد الحذف</h3>
-            <p id="confirm-message">هل أنت متأكد من حذف هذه المحادثة؟ لا يمكن التراجع عن هذا الإجراء.</p>
+            <h3>تأكيد</h3>
+            <p id="confirm-message">هل أنت متأكد من أنك تريد الحذف؟</p>
             <div class="modal-buttons">
-                <button id="confirm-cancel" class="secondary-button">إلغاء</button>
-                <button id="confirm-ok" class="danger-button">حذف</button>
+                <button id="confirm-cancel">إلغاء</button>
+                <button id="confirm-ok" class="danger-button">تأكيد</button>
             </div>
         </div>
     </div>
-
-    <!-- General Error Modal -->
-     <div id="error-modal" class="modal">
-        <div class="modal-content">
-            <h3>خطأ</h3>
-            <p id="error-message">حدث خطأ غير متوقع.</p>
-            <div class="modal-buttons">
-                <button id="error-ok" class="primary-button">حسنًا</button>
-            </div>
-        </div>
-    </div>
-
-
+    
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
