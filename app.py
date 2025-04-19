@@ -1,10 +1,10 @@
-# --- Imports ---
+# --- START OF REFACTORED app.py ---
 import os
 import logging
 import requests
 import json
 import uuid
-import re # Added for email validation
+import re # For email validation
 from datetime import datetime
 from functools import wraps
 
@@ -15,19 +15,29 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # --- Basic Setup ---
-logging.basicConfig(level=logging.INFO) # Use INFO level for production, DEBUG for development
+# Use INFO level for production, DEBUG for development
+# Consider configuring logging further (e.g., file output)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- Base Class for SQLAlchemy models ---
+# Define Base before db if using this pattern
 class Base(DeclarativeBase):
     pass
 
 # --- Initialize Flask ---
 app = Flask(__name__)
-# IMPORTANT: Use a strong, unique secret key stored in environment variables for production
-app.secret_key = os.environ.get("SESSION_SECRET", "change-this-to-a-strong-random-secret-key")
 
 # --- Configuration ---
+# IMPORTANT: Use a strong, unique secret key stored in environment variables for production
+app.secret_key = os.environ.get("SESSION_SECRET")
+if not app.secret_key:
+    logger.critical("FATAL: SESSION_SECRET environment variable is not set. Application cannot run securely.")
+    # In a real deployment, you might exit here or raise a critical error
+    # For now, we'll let it potentially run with a default (unsafe) key if the code below sets one.
+    app.secret_key = "unsafe-default-key-please-set-session-secret"
+
+
 # Get API keys from environment variables
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -36,82 +46,98 @@ if not OPENROUTER_API_KEY:
 if not GEMINI_API_KEY:
     logger.warning("GEMINI_API_KEY environment variable not set. Gemini API backup will not be available.")
 
-
 # Other app configurations
-APP_URL = os.environ.get("APP_URL", "http://localhost:5000") # Set this correctly in your environment
-APP_TITLE = "Yasmin GPT Chat"
+APP_URL = os.environ.get("APP_URL")
+if not APP_URL:
+     logger.warning("APP_URL environment variable not set. Defaulting to http://localhost:5000.")
+     APP_URL = "http://localhost:5000"
+
+APP_TITLE = "Yasmin GPT Chat" # App name for OpenRouter
 
 # Configure the SQLAlchemy database
-# Use DATABASE_URL environment variable (e.g., postgresql://user:password@host:port/database or sqlite:///project.db)
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
-    logger.warning("DATABASE_URL environment variable not set. Defaulting to SQLite database 'yasmin_chat.db'.")
-    DATABASE_URL = "sqlite:///yasmin_chat.db"
+    logger.error("DATABASE_URL environment variable not set. Defaulting to SQLite database 'yasmin_chat_local.db'. USER DATA WILL BE LOST ON RESTART/REDEPLOY ON RENDER.")
+    # Use a different name to avoid conflict if an old one exists
+    DATABASE_URL = "sqlite:///yasmin_chat_local.db"
 
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-    "pool_recycle": 280, # Slightly less than default MySQL wait_timeout
-    "pool_pre_ping": True,
+    "pool_recycle": 280, # Recycle connections periodically
+    "pool_pre_ping": True, # Check connection validity before use
 }
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# --- Initialize Database (SQLAlchemy) ---
-# Define db using the Base class BEFORE defining models
+# --- Initialize Database Extension ---
+# Define db using the Base class BEFORE defining models that use it
 db = SQLAlchemy(model_class=Base)
 
 # --- Model Definitions ---
-# Ensure models inherit from db.Model AFTER db is initialized
+# Define models AFTER db is created, inheriting from db.Model
+
 class User(UserMixin, db.Model):
-    __tablename__ = "users"
+    __tablename__ = "users" # Explicit table name recommended
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(64), unique=True, nullable=False)
+    username = db.Column(db.String(64), unique=True, nullable=False, index=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
-    # Increased length for modern hash algorithms (like Argon2, scrypt)
+    # Increased length for modern hash algorithms (e.g., Argon2, scrypt)
     password_hash = db.Column(db.String(255), nullable=False)
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     def set_password(self, password):
-        # Use default method=scrypt if available, otherwise pbkdf2:sha256
-        self.password_hash = generate_password_hash(password)
+        self.password_hash = generate_password_hash(password) # Uses strong default method
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
-    # get_id is provided by UserMixin, no need to override
+    # get_id is provided by UserMixin
 
     def __repr__(self):
-        return f'<User {self.username}>'
+        admin_status = "Admin" if self.is_admin else "User"
+        return f'<User {self.id}: {self.username} ({admin_status})>'
+
+    def to_dict(self): # Added for potential API use
+        return {
+            "id": self.id,
+            "username": self.username,
+            "email": self.email,
+            "is_admin": self.is_admin,
+            "created_at": self.created_at.isoformat() if self.created_at else None
+        }
 
 class Conversation(db.Model):
     __tablename__ = "conversations"
-    id = db.Column(db.String, primary_key=True) # UUID stored as string
-    title = db.Column(db.String(255), nullable=True) # Allow null title initially
+    # Use String for UUID primary key
+    id = db.Column(db.String(36), primary_key=True)
+    title = db.Column(db.String(100), nullable=False, default="محادثة جديدة")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    # Relationship to Messages - cascade deletes so messages are removed when conversation is deleted
+    # Relationship to Messages - use lazy='dynamic' for querying, cascade deletes
     messages = db.relationship("Message", backref="conversation", lazy='dynamic', cascade="all, delete-orphan")
 
     def add_message(self, role, content):
+        """Helper method to add a message and update timestamp."""
         message = Message(conversation_id=self.id, role=role, content=content)
         db.session.add(message)
-        # Mark conversation as modified to trigger onupdate (though explicit is safer)
+        # Explicitly set updated_at when adding related object
         self.updated_at = datetime.utcnow()
-        db.session.add(self)
+        db.session.add(self) # Mark conversation itself as dirty
+        return message
 
     def get_ordered_messages(self):
         """Returns messages ordered by creation time."""
-        # Use the relationship with lazy='dynamic' and order_by
         return self.messages.order_by(Message.created_at.asc()).all()
 
     def to_dict(self):
-        # Fetch ordered messages using the dedicated method
         ordered_messages = self.get_ordered_messages()
         return {
             "id": self.id,
-            "title": self.title or "محادثة جديدة", # Provide default title if null
-            "messages": [msg.to_dict() for msg in ordered_messages],
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat()
+            "title": self.title,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            # Ensure messages are included in dict
+            "messages": [msg.to_dict() for msg in ordered_messages]
         }
 
     def __repr__(self):
@@ -121,30 +147,32 @@ class Message(db.Model):
     __tablename__ = "messages"
     id = db.Column(db.Integer, primary_key=True)
     # Ensure ondelete='CASCADE' works with your DB (usually does)
-    conversation_id = db.Column(db.String, db.ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
-    role = db.Column(db.String(50), nullable=False) # 'user' or 'assistant'
+    conversation_id = db.Column(db.String(36), db.ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
+    role = db.Column(db.String(20), nullable=False)  # 'user' or 'assistant'
     content = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     def to_dict(self):
         return {
-            "id": self.id, # Include ID for potential frontend use
+            "id": self.id, # Good to include message ID
             "role": self.role,
             "content": self.content,
-            "created_at": self.created_at.isoformat()
+            "created_at": self.created_at.isoformat() if self.created_at else None
         }
 
     def __repr__(self):
         return f'<Message {self.id} ({self.role}) in Conv {self.conversation_id}>'
 
-# --- Initialize Extensions with App ---
-db.init_app(app) # Initialize SQLAlchemy AFTER models are defined if Base is used this way
 
-# Initialize Flask-Login AFTER User model is defined
+# --- Initialize Extensions with App ---
+# Call init_app AFTER models are defined and app is configured
+db.init_app(app)
+
+# Initialize Flask-Login AFTER User model is defined and app is configured
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = 'admin_login'
-login_manager.login_message = 'يرجى تسجيل الدخول للوصول إلى هذه الصفحة.'
+login_manager.login_view = 'admin_login' # Redirect non-logged-in users to this view
+login_manager.login_message = 'يرجى تسجيل الدخول للوصول إلى هذه الصفحة الإدارية.'
 login_manager.login_message_category = 'warning'
 
 # --- Flask-Login User Loader ---
@@ -164,18 +192,17 @@ def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not current_user.is_authenticated:
-            # Use standard Flask-Login handling for unauthorized access
-            return login_manager.unauthorized()
-        if not getattr(current_user, 'is_admin', False): # Check if is_admin exists and is True
+            return login_manager.unauthorized() # Standard Flask-Login handling
+        # Check if user object has is_admin attr and if it's True
+        if not getattr(current_user, 'is_admin', False):
             flash('غير مصرح لك بالوصول إلى هذه الصفحة. صلاحيات المدير مطلوبة.', 'danger')
-            # Redirect to index for non-admins trying admin pages
-            return redirect(url_for('index'))
+            return redirect(url_for('index')) # Redirect non-admins away
         return f(*args, **kwargs)
     return decorated_function
 
 # --- Helper Functions & Data ---
 
-# Yasmin's offline responses
+# Yasmin's offline responses (keep these)
 offline_responses = {
     "السلام عليكم": "وعليكم السلام! أنا ياسمين. للأسف، لا يوجد اتصال بالإنترنت حاليًا.",
     "كيف حالك": "أنا بخير شكراً لك. لكن لا يمكنني الوصول للنماذج الذكية الآن بسبب انقطاع الإنترنت.",
@@ -191,12 +218,11 @@ def call_gemini_api(prompt_messages, max_tokens=512, temperature=0.7):
         logger.warning("Gemini API key not configured. Skipping Gemini call.")
         return None, "مفتاح Gemini API غير متوفر"
 
-    # Use the latest stable chat model endpoint (check Google AI docs for current models)
-    # gemini-1.5-flash-latest is generally a good balance
+    # Use a known working model endpoint
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}"
     headers = {'Content-Type': 'application/json'}
 
-    # Format messages for Gemini API (uses 'user' and 'model' roles)
+    # Format messages for Gemini API ('user' and 'model' roles)
     gemini_messages = []
     for msg in prompt_messages:
         role = 'user' if msg.get('role') == 'user' else 'model'
@@ -204,22 +230,16 @@ def call_gemini_api(prompt_messages, max_tokens=512, temperature=0.7):
         if not content: continue # Skip empty messages
         gemini_messages.append({"role": role, "parts": [{"text": content}]})
 
-    # Ensure the last message is from the 'user' role if the history isn't empty
-    if gemini_messages and gemini_messages[-1]['role'] == 'model':
-        logger.warning("The last message in history sent to Gemini was from 'model'. This might lead to unexpected behavior.")
-        # Depending on the model, it might expect a user prompt last.
-        # Consider if you need to append a dummy user message or handle this case.
-
     if not gemini_messages:
         return None, "لا يوجد محتوى صالح لإرساله إلى Gemini."
 
     payload = {
         "contents": gemini_messages,
         "generationConfig": {
-            "maxOutputTokens": int(max_tokens), # Ensure integer
-            "temperature": float(temperature) # Ensure float
+            "maxOutputTokens": int(max_tokens),
+            "temperature": float(temperature)
         },
-         "safetySettings": [ # Optional: Adjust safety settings if needed
+         "safetySettings": [ # Adjust safety settings as needed
             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
             {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
             {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
@@ -229,46 +249,28 @@ def call_gemini_api(prompt_messages, max_tokens=512, temperature=0.7):
 
     try:
         logger.debug(f"Calling Gemini API ({api_url}) with {len(gemini_messages)} messages.")
-        response = requests.post(api_url, headers=headers, json=payload, timeout=60) # Increased timeout
-        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+        response = requests.post(api_url, headers=headers, json=payload, timeout=60)
+        response.raise_for_status()
         response_data = response.json()
 
-        # --- Parse Gemini Response ---
         if 'candidates' in response_data and len(response_data['candidates']) > 0:
             candidate = response_data['candidates'][0]
-            # Check for finish reason (e.g., SAFETY)
             finish_reason = candidate.get('finishReason', 'UNKNOWN')
-            if finish_reason == 'STOP':
-                if 'content' in candidate and 'parts' in candidate['content'] and len(candidate['content']['parts']) > 0:
-                    text = candidate['content']['parts'][0].get('text', '')
-                    if text:
-                        return text, None # Success
-                    else:
-                        logger.warning("Gemini response candidate has empty text part.")
-                        return None, "استجابة فارغة من Gemini."
-                else:
-                    logger.warning(f"Gemini response structure unexpected (no content/parts): {candidate}")
-                    return None, "استجابة غير متوقعة من Gemini."
+            if finish_reason == 'STOP' or finish_reason == 'MAX_TOKENS':
+                 if 'content' in candidate and 'parts' in candidate['content'] and len(candidate['content']['parts']) > 0:
+                    text = candidate['content']['parts'][0].get('text', '').strip()
+                    if text: return text, None # Success (or partial success on MAX_TOKENS)
+                 logger.warning("Gemini response candidate has empty/missing text part.")
+                 return None, "استجابة فارغة من Gemini."
             elif finish_reason == 'SAFETY':
                 logger.warning("Gemini response blocked due to safety settings.")
-                # Optionally, inspect candidate['safetyRatings'] for details
                 return None, "تم حظر الرد بواسطة مرشحات الأمان في Gemini."
-            elif finish_reason == 'MAX_TOKENS':
-                 logger.warning("Gemini response stopped due to max tokens limit.")
-                 # Return partial text if available
-                 if 'content' in candidate and 'parts' in candidate['content'] and len(candidate['content']['parts']) > 0:
-                    text = candidate['content']['parts'][0].get('text', '')
-                    if text: return text, None # Return partial
-                 return None, "وصل الرد للحد الأقصى للرموز من Gemini."
             else:
                 logger.warning(f"Gemini response finished with unexpected reason: {finish_reason}. Response: {response_data}")
                 return None, f"سبب إنهاء غير متوقع من Gemini: {finish_reason}"
-
-        # Check for prompt feedback blocks (e.g., input was unsafe)
         elif 'promptFeedback' in response_data and response_data['promptFeedback'].get('blockReason'):
             block_reason = response_data['promptFeedback']['blockReason']
             logger.warning(f"Gemini prompt blocked due to: {block_reason}")
-            # Inspect response_data['promptFeedback']['safetyRatings'] for details
             return None, f"تم حظر الطلب بواسطة Gemini بسبب: {block_reason}"
         else:
             logger.error(f"No valid candidates found in Gemini response: {response_data}")
@@ -280,18 +282,14 @@ def call_gemini_api(prompt_messages, max_tokens=512, temperature=0.7):
     except requests.exceptions.RequestException as e:
         logger.error(f"Error calling Gemini API: {e}")
         error_detail = str(e)
-        # Try to get more detail from the response body if available
         if e.response is not None:
-            try:
-                error_json = e.response.json()
-                if 'error' in error_json and 'message' in error_json['error']:
-                    error_detail = error_json['error']['message']
-            except (json.JSONDecodeError, AttributeError):
-                error_detail = e.response.text[:500] # Limit length
+            try: error_detail = e.response.json().get('error', {}).get('message', str(e))
+            except: error_detail = e.response.text[:500]
         return None, f"خطأ في الاتصال بـ Gemini: {error_detail}"
     except Exception as e:
-        logger.exception(f"Unexpected error calling Gemini API: {e}") # Log full traceback
+        logger.exception(f"Unexpected error calling Gemini API: {e}")
         return None, f"خطأ غير متوقع أثناء استدعاء Gemini: {str(e)}"
+
 
 # --- Main Application Routes ---
 @app.route('/')
@@ -306,15 +304,15 @@ def index():
 def chat():
     """Handles incoming chat messages, interacts with AI models, and stores conversation."""
     if not request.is_json:
-        return jsonify({"error": "الطلب يجب أن يكون بصيغة JSON"}), 415 # Unsupported Media Type
+        return jsonify({"error": "الطلب يجب أن يكون بصيغة JSON"}), 415
 
     try:
         data = request.json
         user_message = data.get('message', '').strip()
-        model = data.get('model', 'mistralai/mistral-7b-instruct') # Default model
+        model = data.get('model', 'mistralai/mistral-7b-instruct')
         conversation_id = data.get('conversation_id')
-        temperature = float(data.get('temperature', 0.7)) # Ensure float
-        max_tokens = int(data.get('max_tokens', 1024)) # Ensure int, increase default
+        temperature = float(data.get('temperature', 0.7))
+        max_tokens = int(data.get('max_tokens', 1024))
 
         if not user_message:
             return jsonify({"error": "الرسالة فارغة"}), 400
@@ -322,37 +320,40 @@ def chat():
         db_conversation = None
         is_new_conversation = False
 
-        with db.session.begin_nested(): # Use nested transaction for get/create
-            if conversation_id:
-                # Use db.session.get for efficient primary key lookup
-                db_conversation = db.session.get(Conversation, conversation_id)
+        # Use a single transaction for get/create and adding user message
+        try:
+            with db.session.begin_nested(): # Use nested transaction
+                if conversation_id:
+                    db_conversation = db.session.get(Conversation, conversation_id)
 
-            # If conversation doesn't exist or ID wasn't provided, create a new one
-            if not db_conversation:
-                conversation_id = str(uuid.uuid4())
-                # Use user message as initial title, truncate safely
-                initial_title = (user_message[:47] + '...') if len(user_message) > 50 else user_message
-                db_conversation = Conversation(id=conversation_id, title=initial_title)
-                db.session.add(db_conversation)
-                is_new_conversation = True
-                logger.info(f"Creating new conversation with ID: {conversation_id}")
+                if not db_conversation:
+                    conversation_id = str(uuid.uuid4()) # Generate new ID
+                    initial_title = (user_message[:97] + '...') if len(user_message) > 100 else user_message
+                    db_conversation = Conversation(id=conversation_id, title=initial_title)
+                    db.session.add(db_conversation)
+                    is_new_conversation = True
+                    logger.info(f"Creating new conversation with ID: {conversation_id}")
 
-            # Add user message to the database conversation
-            db_conversation.add_message('user', user_message)
+                # Add user message within the same transaction
+                db_conversation.add_message('user', user_message)
 
-        # Commit the transaction for get/create and user message add
-        db.session.commit()
+            db.session.commit() # Commit the outer transaction
+
+        except Exception as e:
+            db.session.rollback()
+            logger.exception(f"Database error during chat init/user message save (Conv ID: {conversation_id}): {e}")
+            return jsonify({"error": "حدث خطأ في قاعدة البيانات أثناء حفظ الرسالة."}), 500
+
 
         # --- Prepare messages for the API ---
-        # Fetch full history from DB to ensure consistency
-        # get_ordered_messages handles the ordering
+        # Fetch full history from DB after saving user message
         db_messages_orm = db_conversation.get_ordered_messages()
         messages_for_api = [{"role": msg.role, "content": msg.content} for msg in db_messages_orm]
 
         ai_reply = None
         error_message = None
         used_backup = False
-        api_source = "Offline" # Default if no API works
+        api_source = "Offline"
 
         # 1. Try OpenRouter API
         if OPENROUTER_API_KEY:
@@ -362,147 +363,115 @@ def chat():
                     url="https://openrouter.ai/api/v1/chat/completions",
                     headers={
                         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                        "HTTP-Referer": APP_URL, # Required by OpenRouter
-                        "X-Title": APP_TITLE,     # Optional
+                        "HTTP-Referer": APP_URL,
+                        "X-Title": APP_TITLE,
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": model,
-                        "messages": messages_for_api,
-                        "temperature": temperature,
-                        "max_tokens": max_tokens,
-                        # Consider adding other params like top_p, presence_penalty if needed
+                        "model": model, "messages": messages_for_api,
+                        "temperature": temperature, "max_tokens": max_tokens,
                     },
-                    timeout=90 # Increased timeout for potentially longer responses
+                    timeout=90
                 )
-                response.raise_for_status() # Raise exception for non-200 responses
+                response.raise_for_status()
                 api_response = response.json()
-
-                # Check response structure carefully
                 choices = api_response.get('choices', [])
-                if choices and isinstance(choices, list) and len(choices) > 0:
+                if choices:
                     message_content = choices[0].get('message', {}).get('content')
                     if message_content:
                         ai_reply = message_content.strip()
                         api_source = "OpenRouter"
-                        logger.info(f"Successfully received reply from OpenRouter (Conv: {conversation_id}).")
-                    else:
-                        logger.warning(f"OpenRouter response message content is empty/missing. Response: {api_response}")
-                        error_message = "استجابة فارغة من OpenRouter."
-                else:
-                    logger.warning(f"OpenRouter response structure unexpected (no choices/message). Response: {api_response}")
-                    error_message = "استجابة غير متوقعة من OpenRouter."
+                        logger.info(f"Success from OpenRouter (Conv: {conversation_id}).")
+                    else: error_message = "استجابة فارغة من OpenRouter."
+                else: error_message = "استجابة غير متوقعة من OpenRouter."
 
             except requests.exceptions.Timeout:
-                 logger.error(f"Timeout calling OpenRouter API (Conv: {conversation_id}).")
+                 logger.error(f"Timeout calling OpenRouter (Conv: {conversation_id}).")
                  error_message = "انتهت مهلة الاتصال بـ OpenRouter."
             except requests.exceptions.RequestException as e:
                 logger.error(f"Error calling OpenRouter (Conv: {conversation_id}): {e}")
-                # Try to parse error details from response if available
                 error_detail = str(e)
                 if e.response is not None:
-                    try:
-                        err_json = e.response.json()
-                        if 'error' in err_json and isinstance(err_json['error'], dict) and 'message' in err_json['error']:
-                            error_detail = err_json['error']['message']
-                        elif 'detail' in err_json: # Some APIs use 'detail'
-                             error_detail = str(err_json['detail'])
-                    except (json.JSONDecodeError, AttributeError):
-                        error_detail = e.response.text[:500]
+                    try: error_detail = e.response.json().get('error',{}).get('message', str(e))
+                    except: error_detail = e.response.text[:500]
                     error_message = f"خطأ من OpenRouter ({e.response.status_code}): {error_detail}"
-                else:
-                     error_message = f"خطأ في الاتصال بـ OpenRouter: {error_detail}"
-
+                else: error_message = f"خطأ في الاتصال بـ OpenRouter: {error_detail}"
             except Exception as e:
                  logger.exception(f"Unexpected error during OpenRouter call (Conv: {conversation_id}): {e}")
                  error_message = f"خطأ غير متوقع في OpenRouter: {str(e)}"
 
         # 2. Try Gemini API as backup if OpenRouter failed
         if not ai_reply and GEMINI_API_KEY:
-            logger.info(f"OpenRouter failed or key missing. Trying Gemini API as backup (Conv: {conversation_id}).")
+            logger.info(f"Trying Gemini API backup (Conv: {conversation_id}).")
             gemini_reply, gemini_error = call_gemini_api(messages_for_api, max_tokens, temperature)
             if gemini_reply:
                 ai_reply = gemini_reply.strip()
                 used_backup = True
                 api_source = "Gemini"
-                error_message = None # Clear previous error if backup succeeds
-                logger.info(f"Successfully received reply from Gemini (backup) (Conv: {conversation_id}).")
+                error_message = None # Clear previous error
+                logger.info(f"Success from Gemini (backup) (Conv: {conversation_id}).")
             else:
-                # Combine errors if OpenRouter also failed
                 combined_error = f"فشل النموذج الاحتياطي (Gemini): {gemini_error}"
-                if error_message: # Prepend OpenRouter error if it exists
-                     combined_error = f"{error_message} | {combined_error}"
+                if error_message: combined_error = f"{error_message} | {combined_error}"
                 error_message = combined_error
                 logger.error(f"Gemini backup failed (Conv: {conversation_id}): {gemini_error}")
 
         # 3. Use offline responses if both APIs failed
         if not ai_reply:
-            logger.warning(f"Both APIs failed or unavailable. Using offline response (Conv: {conversation_id}).")
-            # Simple keyword check for offline response
-            matched_offline = False
+            logger.warning(f"Using offline response (Conv: {conversation_id}). Last API error: {error_message}")
             user_msg_lower = user_message.lower()
-            for key, response in offline_responses.items():
-                # More robust check: ensure the keyword is a whole word or common phrase part
+            matched_offline = False
+            for key, response_text in offline_responses.items():
                  if re.search(rf'\b{re.escape(key.lower())}\b', user_msg_lower):
-                    ai_reply = response
+                    ai_reply = response_text
                     matched_offline = True
                     break
-            if not matched_offline:
-                ai_reply = default_offline_response
+            if not matched_offline: ai_reply = default_offline_response
 
-            # Log the final error that prevented API use
-            logger.info(f"Providing offline response for Conv {conversation_id}. Last API error: {error_message}")
-
-            # Add the offline assistant response to DB
+            # Save offline response to DB
             try:
                 with db.session.begin_nested():
                     db_conversation.add_message('assistant', ai_reply)
                 db.session.commit()
             except Exception as e:
                  db.session.rollback()
-                 # Log error but continue to return the offline response to user
                  logger.error(f"Failed to save offline assistant response to DB (Conv: {conversation_id}): {e}")
+                 # Continue to return response to user even if DB save fails
 
             return jsonify({
-                "reply": ai_reply,
-                "conversation_id": conversation_id,
-                "offline": True, # Indicate offline response
-                "error": error_message, # Include last error message for info
-                "api_source": api_source,
-                "is_new_conversation": is_new_conversation # Let frontend know if it was created
-            }), 200 # Return 200 even for offline, use flags
+                "reply": ai_reply, "conversation_id": conversation_id,
+                "offline": True, "error": error_message, "api_source": api_source,
+                "is_new_conversation": is_new_conversation
+            }), 200 # Return 200 OK for offline response
 
         # --- If API call (OpenRouter or Gemini) was successful ---
         if ai_reply:
-            # Add successful assistant response to database
             try:
                 with db.session.begin_nested():
                     db_conversation.add_message('assistant', ai_reply)
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()
-                logger.error(f"Error adding assistant message to DB (Conv: {conversation_id}): {e}")
-                # Return error to frontend as saving failed
-                return jsonify({"error": "فشل في حفظ رد المساعد في قاعدة البيانات"}), 500
+                logger.exception(f"Database error saving assistant message (Conv ID: {conversation_id}): {e}")
+                # Inform user but maybe the frontend can handle the reply display?
+                # Return 500 as the state is inconsistent
+                return jsonify({"error": "فشل في حفظ رد المساعد في قاعدة البيانات."}), 500
 
             return jsonify({
-                "reply": ai_reply,
-                "conversation_id": conversation_id,
-                "backup_used": used_backup,
-                "offline": False,
-                "api_source": api_source,
+                "reply": ai_reply, "conversation_id": conversation_id,
+                "backup_used": used_backup, "offline": False, "api_source": api_source,
                 "is_new_conversation": is_new_conversation
             })
 
-        # Fallback in case logic somehow doesn't return (shouldn't happen)
-        logger.error(f"Reached end of /api/chat without returning a response (Conv: {conversation_id})")
-        return jsonify({"error": "حدث خطأ غير متوقع في منطق الخادم"}), 500
+        # Fallback error
+        logger.error(f"Reached end of /api/chat logic unexpectedly (Conv: {conversation_id})")
+        return jsonify({"error": "حدث خطأ غير معروف في الخادم."}), 500
 
     except Exception as e:
-        db.session.rollback() # Rollback any potential partial DB changes
-        logger.exception("Unhandled exception in /api/chat route") # Log full traceback
-        # Avoid exposing internal details in production error messages
-        return jsonify({"error": "حدث خطأ داخلي غير متوقع في الخادم"}), 500
+        # Catch any unexpected errors during request processing
+        db.session.rollback() # Ensure rollback on any exception
+        logger.exception("Unhandled exception in /api/chat route")
+        return jsonify({"error": "حدث خطأ داخلي غير متوقع في الخادم."}), 500
 
 
 @app.route('/api/regenerate', methods=['POST'])
@@ -513,40 +482,28 @@ def regenerate():
 
     try:
         data = request.json
-        messages_history = data.get('messages', []) # Full history from frontend
+        messages_history = data.get('messages', []) # History from frontend
         model = data.get('model', 'mistralai/mistral-7b-instruct')
         conversation_id = data.get('conversation_id')
         temperature = float(data.get('temperature', 0.7))
         max_tokens = int(data.get('max_tokens', 1024))
 
-        if not conversation_id:
-            return jsonify({"error": "معرّف المحادثة مطلوب"}), 400
+        if not conversation_id: return jsonify({"error": "معرّف المحادثة مطلوب"}), 400
+        if not messages_history: return jsonify({"error": "لا توجد رسائل لإعادة التوليد"}), 400
 
-        if not messages_history or len(messages_history) < 1:
-             # Need at least one message (user) to generate from
-            return jsonify({"error": "لا توجد رسائل كافية لإعادة التوليد"}), 400
-
-        # Get conversation from database to verify it exists
         db_conversation = db.session.get(Conversation, conversation_id)
-        if not db_conversation:
-            return jsonify({"error": "المحادثة غير موجودة"}), 404
+        if not db_conversation: return jsonify({"error": "المحادثة غير موجودة"}), 404
 
         # --- Prepare messages for API ---
-        # Use the history provided by the frontend for context,
-        # removing the *last* message only if it was from the assistant.
-        messages_for_api = list(messages_history) # Create a copy
+        # Remove the *last* message from history *only if* it was from the assistant
+        messages_for_api = list(messages_history)
         last_msg_removed = False
         if messages_for_api and messages_for_api[-1].get("role") == "assistant":
             messages_for_api.pop()
             last_msg_removed = True
-            logger.info(f"Regenerate: Removed last assistant message from history for API call (Conv: {conversation_id}).")
+            logger.info(f"Regenerate: Removed last assistant message for API call (Conv: {conversation_id}).")
         elif not messages_for_api:
-             # If history was only the assistant message, it's now empty
-              return jsonify({"error": "لا توجد رسائل كافية لإعادة التوليد بعد إزالة الرد الأخير."}), 400
-        else:
-             # Last message was from user - regenerate based on existing history
-             logger.info(f"Regenerate: Last message was from user, regenerating based on current history (Conv: {conversation_id}).")
-
+             return jsonify({"error": "لا توجد رسائل كافية لإعادة التوليد بعد إزالة الرد الأخير."}), 400
 
         ai_reply = None
         error_message = None
@@ -556,112 +513,95 @@ def regenerate():
         # 1. Try OpenRouter API
         if OPENROUTER_API_KEY:
             try:
-                logger.info(f"Attempting OpenRouter API call for regeneration (Conv: {conversation_id}, Model: {model})")
+                logger.info(f"Attempting OpenRouter API for regeneration (Conv: {conversation_id}, Model: {model})")
                 response = requests.post(
                     url="https://openrouter.ai/api/v1/chat/completions",
                     headers={
-                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                        "HTTP-Referer": APP_URL,
-                        "X-Title": APP_TITLE,
-                        "Content-Type": "application/json"
+                        "Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": APP_URL,
+                        "X-Title": APP_TITLE, "Content-Type": "application/json"
                     },
                     json={
-                        "model": model,
-                        "messages": messages_for_api,
-                        "temperature": temperature,
-                        "max_tokens": max_tokens,
+                        "model": model, "messages": messages_for_api,
+                        "temperature": temperature, "max_tokens": max_tokens,
                     },
                     timeout=90
                 )
                 response.raise_for_status()
                 api_response = response.json()
-
                 choices = api_response.get('choices', [])
-                if choices and isinstance(choices, list) and len(choices) > 0:
+                if choices:
                     message_content = choices[0].get('message', {}).get('content')
                     if message_content:
                         ai_reply = message_content.strip()
                         api_source = "OpenRouter"
-                        logger.info(f"Successfully regenerated reply from OpenRouter (Conv: {conversation_id}).")
-                    else:
-                         logger.warning(f"OpenRouter regenerate response message content empty. Response: {api_response}")
-                         error_message = "استجابة إعادة التوليد فارغة من OpenRouter."
-                else:
-                    logger.warning(f"OpenRouter regenerate response structure unexpected. Response: {api_response}")
-                    error_message = "استجابة إعادة التوليد غير متوقعة من OpenRouter."
+                        logger.info(f"Success regenerating from OpenRouter (Conv: {conversation_id}).")
+                    else: error_message = "استجابة إعادة التوليد فارغة من OpenRouter."
+                else: error_message = "استجابة إعادة التوليد غير متوقعة من OpenRouter."
 
             except requests.exceptions.Timeout:
-                 logger.error(f"Timeout calling OpenRouter API during regeneration (Conv: {conversation_id}).")
+                 logger.error(f"Timeout calling OpenRouter for regeneration (Conv: {conversation_id}).")
                  error_message = "انتهت مهلة الاتصال بـ OpenRouter عند إعادة التوليد."
             except requests.exceptions.RequestException as e:
                 logger.error(f"Error calling OpenRouter for regeneration (Conv: {conversation_id}): {e}")
                 error_detail = str(e)
                 if e.response is not None:
-                    try:
-                        err_json = e.response.json()
-                        if 'error' in err_json and isinstance(err_json['error'], dict) and 'message' in err_json['error']:
-                            error_detail = err_json['error']['message']
-                        elif 'detail' in err_json:
-                             error_detail = str(err_json['detail'])
-                    except (json.JSONDecodeError, AttributeError):
-                         error_detail = e.response.text[:500]
+                    try: error_detail = e.response.json().get('error',{}).get('message', str(e))
+                    except: error_detail = e.response.text[:500]
                     error_message = f"خطأ من OpenRouter ({e.response.status_code}): {error_detail}"
-                else:
-                    error_message = f"خطأ في الاتصال بـ OpenRouter: {error_detail}"
+                else: error_message = f"خطأ في الاتصال بـ OpenRouter: {error_detail}"
             except Exception as e:
-                 logger.exception(f"Unexpected error during OpenRouter regeneration call (Conv: {conversation_id}): {e}")
+                 logger.exception(f"Unexpected error during OpenRouter regeneration (Conv: {conversation_id}): {e}")
                  error_message = f"خطأ غير متوقع في OpenRouter: {str(e)}"
 
-        # 2. Try Gemini API as backup if OpenRouter failed
+        # 2. Try Gemini API as backup
         if not ai_reply and GEMINI_API_KEY:
-            logger.info(f"OpenRouter failed regeneration. Trying Gemini API backup (Conv: {conversation_id}).")
+            logger.info(f"Trying Gemini API backup for regeneration (Conv: {conversation_id}).")
             gemini_reply, gemini_error = call_gemini_api(messages_for_api, max_tokens, temperature)
             if gemini_reply:
                 ai_reply = gemini_reply.strip()
                 used_backup = True
                 api_source = "Gemini"
                 error_message = None # Clear previous error
-                logger.info(f"Successfully regenerated reply from Gemini (backup) (Conv: {conversation_id}).")
+                logger.info(f"Success regenerating from Gemini (backup) (Conv: {conversation_id}).")
             else:
                 combined_error = f"فشل النموذج الاحتياطي (Gemini): {gemini_error}"
-                if error_message:
-                     combined_error = f"{error_message} | {combined_error}"
+                if error_message: combined_error = f"{error_message} | {combined_error}"
                 error_message = combined_error
                 logger.error(f"Gemini backup failed for regeneration (Conv: {conversation_id}): {gemini_error}")
 
-        # 3. Handle failure to regenerate (NO offline fallback for regenerate)
+        # 3. Handle failure to regenerate
         if not ai_reply:
             final_error_msg = f"فشلت عملية إعادة توليد الرد. {error_message or 'النماذج غير متاحة.'}"
             logger.error(f"Failed to regenerate response for Conv {conversation_id}. Error: {error_message}")
-            return jsonify({"error": final_error_msg}), 503 # Service Unavailable is appropriate
+            return jsonify({"error": final_error_msg}), 503 # Service Unavailable
 
         # --- If regeneration API call was successful ---
         if ai_reply:
             try:
                 with db.session.begin_nested():
-                    # Find the *actual* last assistant message in the database to update it
-                    last_assistant_msg_orm = db.session.execute(
-                        db.select(Message)
-                        .filter_by(conversation_id=conversation_id, role='assistant')
-                        .order_by(Message.created_at.desc())
-                    ).scalars().first() # Use first()
+                    if last_msg_removed:
+                        # Find the *actual* last assistant message in the database and update it
+                        last_assistant_msg_orm = db.session.execute(
+                            db.select(Message)
+                            .filter_by(conversation_id=conversation_id, role='assistant')
+                            .order_by(Message.created_at.desc())
+                        ).scalars().first()
 
-                    if last_assistant_msg_orm and last_msg_removed:
-                        # Update existing message content and timestamp if we removed one from history
-                        last_assistant_msg_orm.content = ai_reply
-                        last_assistant_msg_orm.created_at = datetime.utcnow() # Reflect regeneration time
-                        db.session.add(last_assistant_msg_orm)
-                        logger.info(f"Updated last assistant message (ID: {last_assistant_msg_orm.id}) in DB for Conv {conversation_id}.")
-                    elif last_assistant_msg_orm and not last_msg_removed:
-                        # If the last message was 'user', we are adding a *new* assistant message after it
-                        logger.info(f"Adding regenerated response as new assistant message after user msg (Conv: {conversation_id}).")
-                        db_conversation.add_message('assistant', ai_reply)
+                        if last_assistant_msg_orm:
+                            last_assistant_msg_orm.content = ai_reply
+                            last_assistant_msg_orm.created_at = datetime.utcnow() # Update timestamp
+                            db.session.add(last_assistant_msg_orm)
+                            logger.info(f"Updated last assistant message (ID: {last_assistant_msg_orm.id}) in DB for Conv {conversation_id}.")
+                        else:
+                             # Should not happen if last_msg_removed is True, but handle defensively
+                             logger.warning(f"Regenerate inconsistency: last msg removed from history, but no assistant msg found in DB for Conv {conversation_id}. Adding as new.")
+                             db_conversation.add_message('assistant', ai_reply)
                     else:
-                        # No prior assistant message OR history didn't end with assistant. Add as new.
-                        logger.info(f"Adding regenerated response as the first/new assistant message (Conv: {conversation_id}).")
-                        db_conversation.add_message('assistant', ai_reply)
+                        # If last message in history was user, add the new response
+                         logger.info(f"Adding regenerated response as new assistant message (Conv: {conversation_id}).")
+                         db_conversation.add_message('assistant', ai_reply)
 
-                    # Update the conversation's updated_at timestamp
+                    # Update the conversation's overall timestamp
                     db_conversation.updated_at = datetime.utcnow()
                     db.session.add(db_conversation)
 
@@ -669,15 +609,12 @@ def regenerate():
 
             except Exception as e:
                 db.session.rollback()
-                logger.error(f"Error saving regenerated message to DB (Conv: {conversation_id}): {e}")
-                return jsonify({"error": "فشل في حفظ الرد المُعاد توليده في قاعدة البيانات"}), 500
+                logger.exception(f"Database error saving regenerated message (Conv ID: {conversation_id}): {e}")
+                return jsonify({"error": "فشل في حفظ الرد المُعاد توليده في قاعدة البيانات."}), 500
 
             return jsonify({
-                "reply": ai_reply,
-                "conversation_id": conversation_id,
-                "backup_used": used_backup,
-                "offline": False,
-                "api_source": api_source
+                "reply": ai_reply, "conversation_id": conversation_id,
+                "backup_used": used_backup, "offline": False, "api_source": api_source
             })
 
     except Exception as e:
@@ -688,23 +625,15 @@ def regenerate():
 
 @app.route('/api/conversations/<string:conversation_id>', methods=['GET'])
 def get_conversation(conversation_id):
-    """Fetches a specific conversation and its messages from the database."""
+    """Fetches a specific conversation and its messages."""
     try:
-        # Validate UUID format if desired, though db.session.get handles non-matches
-        # try:
-        #     uuid.UUID(conversation_id)
-        # except ValueError:
-        #     return jsonify({"error": "معرف المحادثة غير صالح"}), 400
+        # Validate UUID format roughly
+        if len(conversation_id) != 36: return jsonify({"error": "معرف المحادثة غير صالح"}), 400
 
         db_conversation = db.session.get(Conversation, conversation_id)
+        if not db_conversation: return jsonify({"error": "المحادثة غير موجودة"}), 404
 
-        if not db_conversation:
-            logger.info(f"Conversation not found: {conversation_id}")
-            return jsonify({"error": "المحادثة غير موجودة"}), 404
-
-        # Convert to dict format expected by the frontend
-        conversation_dict = db_conversation.to_dict()
-        return jsonify(conversation_dict)
+        return jsonify(db_conversation.to_dict())
 
     except Exception as e:
         logger.exception(f"Error fetching conversation {conversation_id}: {e}")
@@ -717,17 +646,10 @@ def list_conversations():
         conversations_orm = db.session.execute(
             db.select(Conversation).order_by(Conversation.updated_at.desc())
         ).scalars().all()
-
-        # Convert to list of dicts with id, title, and updated_at
         conversation_list = [
-            {
-                "id": conv.id,
-                "title": conv.title or "محادثة جديدة",
-                "updated_at": conv.updated_at.isoformat()
-             }
+            {"id": conv.id, "title": conv.title, "updated_at": conv.updated_at.isoformat()}
             for conv in conversations_orm
         ]
-
         return jsonify({"conversations": conversation_list})
     except Exception as e:
         logger.exception(f"Error listing conversations: {e}")
@@ -735,19 +657,14 @@ def list_conversations():
 
 @app.route('/api/conversations/<string:conversation_id>', methods=['DELETE'])
 def delete_conversation(conversation_id):
-    """Deletes a specific conversation and its messages from the database."""
+    """Deletes a specific conversation and its messages."""
     try:
         db_conversation = db.session.get(Conversation, conversation_id)
+        if not db_conversation: return jsonify({"error": "المحادثة غير موجودة"}), 404
 
-        if not db_conversation:
-            logger.warning(f"Attempted to delete non-existent conversation: {conversation_id}")
-            return jsonify({"error": "المحادثة غير موجودة"}), 404
-
-        # Delete conversation (cascading delete should handle messages)
-        db.session.delete(db_conversation)
+        db.session.delete(db_conversation) # Cascade delete handles messages
         db.session.commit()
-        logger.info(f"Deleted conversation with ID: {conversation_id}")
-
+        logger.info(f"Deleted conversation {conversation_id}")
         return jsonify({"success": True, "message": "تم حذف المحادثة بنجاح"})
 
     except Exception as e:
@@ -755,32 +672,25 @@ def delete_conversation(conversation_id):
         logger.exception(f"Error deleting conversation {conversation_id}: {e}")
         return jsonify({"error": f"خطأ في حذف المحادثة: {str(e)}"}), 500
 
-
 @app.route('/api/models', methods=['GET'])
 def get_models():
-    """Returns a list of available models for the frontend dropdown."""
-    # Consider making this list configurable (e.g., from settings or env var)
-    # Ensure model IDs match exactly what OpenRouter expects.
+    """Returns a list of available models."""
+    # Keep this list updated or fetch dynamically if possible
     models = [
         {"id": "mistralai/mistral-7b-instruct", "name": "Mistral 7B Instruct"},
         {"id": "google/gemma-7b-it", "name": "Google Gemma 7B IT"},
         {"id": "meta-llama/llama-3-8b-instruct", "name": "Meta Llama 3 8B Instruct"},
-        # Use specific dated versions for Claude models if needed
         {"id": "anthropic/claude-3-haiku-20240307", "name": "Anthropic Claude 3 Haiku"},
         {"id": "anthropic/claude-3-sonnet-20240229", "name": "Anthropic Claude 3 Sonnet"},
-        # GPT models
         {"id": "openai/gpt-3.5-turbo", "name": "OpenAI GPT-3.5 Turbo"},
         {"id": "openai/gpt-4-turbo", "name": "OpenAI GPT-4 Turbo"},
-        {"id": "openai/gpt-4o", "name": "OpenAI GPT-4o"}, # Add GPT-4o
-        # Other options
-        # {"id": "anthropic/claude-3-opus-20240229", "name": "Anthropic Claude 3 Opus"},
-        # {"id": "google/gemma-2b-it", "name": "Google Gemma 2B IT"}
+        {"id": "openai/gpt-4o", "name": "OpenAI GPT-4o"},
     ]
     return jsonify({"models": models})
 
 
 # ----- Admin Panel Routes -----
-# Assumes templates exist under a 'templates/admin/' directory
+# Assumes templates exist under 'templates/admin/'
 
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
@@ -793,49 +703,36 @@ def admin_login():
         password = request.form.get('password')
 
         if not username or not password:
-            flash('يرجى إدخال اسم المستخدم وكلمة المرور', 'danger')
-            # Render again, potentially passing back username if needed
-            return render_template('admin/login.html', username=username, app_title=APP_TITLE)
+            flash('يرجى إدخال اسم المستخدم وكلمة المرور.', 'danger')
+            return render_template('admin/login.html', username=username) # Pass back username
 
-        # Case-insensitive username lookup? Optional, but often user-friendly.
-        user = db.session.execute(
-            db.select(User).filter(User.username.ilike(username)) # Use ilike for case-insensitive
-        ).scalar_one_or_none()
-
-        login_attempt_user = username # For logging failed attempts
+        user = db.session.execute(db.select(User).filter_by(username=username)).scalar_one_or_none()
 
         if user and user.check_password(password):
             if user.is_admin:
-                # Login successful
-                login_user(user, remember=True) # Add remember me functionality
+                login_user(user, remember=True) # Remember the user
                 next_page = request.args.get('next')
-                flash('تم تسجيل الدخول بنجاح.', 'success')
+                # Add basic URL validation for 'next' if needed to prevent open redirects
                 logger.info(f"Admin user '{user.username}' logged in successfully.")
-                # Validate next_page to prevent open redirect vulnerability
-                # if next_page and is_safe_url(next_page): # Implement is_safe_url check
-                #    return redirect(next_page)
+                flash('تم تسجيل الدخول بنجاح.', 'success')
                 return redirect(next_page or url_for('admin_dashboard'))
             else:
-                # Valid user but not admin
                 flash('ليس لديك صلاحيات الوصول للوحة التحكم الإدارية.', 'warning')
                 logger.warning(f"Non-admin user '{user.username}' attempted admin login.")
-                login_attempt_user = user.username # Log actual username found
         else:
-            # Invalid username or password
             flash('اسم المستخدم أو كلمة المرور غير صحيحة.', 'danger')
-            logger.warning(f"Failed admin login attempt for username: '{login_attempt_user}'.")
+            logger.warning(f"Failed admin login attempt for username: '{username}'.")
 
-    # Render login page on GET or failed POST
-    return render_template('admin/login.html', app_title=APP_TITLE)
+    return render_template('admin/login.html') # Render on GET or failed POST
 
 @app.route('/admin/logout')
-@login_required # Requires login, but admin check happens implicitly via usage context
+@login_required
 def admin_logout():
     """Handles admin logout."""
-    username = getattr(current_user, 'username', 'Unknown') # Get username before logout
+    username = getattr(current_user, 'username', 'Unknown')
     logout_user()
     flash('تم تسجيل الخروج بنجاح.', 'success')
-    logger.info(f"User '{username}' logged out from admin.")
+    logger.info(f"User '{username}' logged out from admin panel.")
     return redirect(url_for('admin_login'))
 
 @app.route('/admin')
@@ -843,12 +740,9 @@ def admin_logout():
 def admin_dashboard():
     """Displays the main admin dashboard."""
     try:
-        # Get summary statistics (more efficient counts)
         user_count = db.session.scalar(db.select(db.func.count(User.id)))
         conversation_count = db.session.scalar(db.select(db.func.count(Conversation.id)))
         message_count = db.session.scalar(db.select(db.func.count(Message.id)))
-
-        # Get latest conversations
         recent_conversations = db.session.execute(
             db.select(Conversation).order_by(Conversation.updated_at.desc()).limit(5)
         ).scalars().all()
@@ -857,24 +751,19 @@ def admin_dashboard():
                                user_count=user_count,
                                conversation_count=conversation_count,
                                message_count=message_count,
-                               recent_conversations=recent_conversations,
-                               app_title=APP_TITLE)
+                               recent_conversations=recent_conversations)
     except Exception as e:
         logger.exception("Error loading admin dashboard")
         flash("حدث خطأ أثناء تحميل لوحة التحكم.", "danger")
-        return redirect(url_for('index')) # Redirect non-admins away
-
-
-# --- Admin User Management ---
+        return redirect(url_for('index'))
 
 @app.route('/admin/users')
 @admin_required
 def admin_users():
     """Displays the list of users."""
     try:
-        # Order users for consistent display
         users = db.session.execute(db.select(User).order_by(User.username)).scalars().all()
-        return render_template('admin/users.html', users=users, app_title=APP_TITLE)
+        return render_template('admin/users.html', users=users)
     except Exception as e:
         logger.exception("Error loading admin users page")
         flash("حدث خطأ أثناء تحميل قائمة المستخدمين.", "danger")
@@ -885,42 +774,34 @@ def admin_users():
 def admin_create_user():
     """Handles creation of new users."""
     if request.method == 'POST':
-        # Strip whitespace from inputs
         username = request.form.get('username', '').strip()
         email = request.form.get('email', '').strip().lower()
-        password = request.form.get('password') # Don't strip password
+        password = request.form.get('password')
         is_admin = 'is_admin' in request.form
 
-        # --- Server-Side Validation ---
+        # Server-Side Validation
         errors = []
         if not username: errors.append("اسم المستخدم مطلوب.")
         if not email: errors.append("البريد الإلكتروني مطلوب.")
         elif not re.match(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$", email):
              errors.append("صيغة البريد الإلكتروني غير صحيحة.")
         if not password: errors.append("كلمة المرور مطلوبة.")
-        elif len(password) < 8: # Basic password length check
-             errors.append("كلمة المرور يجب أن تكون 8 أحرف على الأقل.")
+        elif len(password) < 8: errors.append("كلمة المرور يجب أن تكون 8 أحرف على الأقل.")
 
         if errors:
             for error in errors: flash(error, 'danger')
-            # Return form with entered values (except password)
-            return render_template('admin/create_user.html', username=username, email=email, is_admin=is_admin, app_title=APP_TITLE)
+            return render_template('admin/create_user.html', username=username, email=email, is_admin=is_admin)
 
-        # Check if username or email already exists (case-insensitive check)
-        existing_user = db.session.execute(
-            db.select(User).filter(
-                (User.username.ilike(username)) | (User.email == email) # Use ilike for username
-            )
-        ).scalar_one_or_none()
-
+        # Check uniqueness
+        existing_user = db.session.scalar(db.select(User).filter(
+            (User.username == username) | (User.email == email)
+        ))
         if existing_user:
-            if existing_user.username.lower() == username.lower():
-                 flash(f"اسم المستخدم '{username}' مستخدم بالفعل.", 'danger')
-            if existing_user.email == email:
-                 flash(f"البريد الإلكتروني '{email}' مستخدم بالفعل.", 'danger')
-            return render_template('admin/create_user.html', username=username, email=email, is_admin=is_admin, app_title=APP_TITLE)
+            if existing_user.username == username: flash(f"اسم المستخدم '{username}' مستخدم بالفعل.", 'danger')
+            if existing_user.email == email: flash(f"البريد الإلكتروني '{email}' مستخدم بالفعل.", 'danger')
+            return render_template('admin/create_user.html', username=username, email=email, is_admin=is_admin)
 
-        # Create new user
+        # Create User
         try:
             new_user = User(username=username, email=email, is_admin=is_admin)
             new_user.set_password(password)
@@ -932,111 +813,98 @@ def admin_create_user():
         except Exception as e:
             db.session.rollback()
             logger.exception("Error creating new user in database")
-            flash(f"حدث خطأ أثناء إنشاء المستخدم في قاعدة البيانات: {str(e)}", 'danger')
-            # Show form again with values
-            return render_template('admin/create_user.html', username=username, email=email, is_admin=is_admin, app_title=APP_TITLE)
+            flash(f"حدث خطأ أثناء إنشاء المستخدم: {str(e)}", 'danger')
+            return render_template('admin/create_user.html', username=username, email=email, is_admin=is_admin)
 
-    # Render blank form on GET request
-    return render_template('admin/create_user.html', app_title=APP_TITLE)
+    return render_template('admin/create_user.html')
 
 @app.route('/admin/users/<int:user_id>/edit', methods=['GET', 'POST'])
 @admin_required
 def admin_edit_user(user_id):
     """Handles editing of existing users."""
-    # Use db.session.get for primary key lookup
     user = db.session.get(User, user_id)
     if not user:
         flash('المستخدم غير موجود.', 'danger')
         return redirect(url_for('admin_users'))
 
     if request.method == 'POST':
-        # Store original values for comparison/logging
         original_username = user.username
         original_email = user.email
-
-        # Get and sanitize form data
         username = request.form.get('username', '').strip()
         email = request.form.get('email', '').strip().lower()
-        new_password = request.form.get('new_password') # Optional new password
+        new_password = request.form.get('new_password')
         is_admin = 'is_admin' in request.form
 
-        # --- Server-Side Validation ---
         errors = []
         if not username: errors.append("اسم المستخدم مطلوب.")
         if not email: errors.append("البريد الإلكتروني مطلوب.")
         elif not re.match(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$", email):
              errors.append("صيغة البريد الإلكتروني غير صحيحة.")
-        # Validate password only if a new one is provided
         if new_password and len(new_password) < 8:
              errors.append("كلمة المرور الجديدة يجب أن تكون 8 أحرف على الأقل.")
 
         if errors:
             for error in errors: flash(error, 'danger')
-            # Re-render edit form with current user data (not submitted data)
-            return render_template('admin/edit_user.html', user=user, app_title=APP_TITLE)
+            return render_template('admin/edit_user.html', user=user) # Show form with original data
 
-        # Check if NEW username or email already exists (excluding the current user)
-        if username.lower() != original_username.lower() or email != original_email:
-            existing_user_check = db.session.execute(
-                db.select(User).filter(
-                    User.id != user_id, # Exclude self
-                    (User.username.ilike(username)) | (User.email == email)
-                )
-            ).scalar_one_or_none()
+        # Check uniqueness if changed
+        if username != original_username or email != original_email:
+            existing_check = db.session.scalar(db.select(User).filter(
+                User.id != user_id,
+                (User.username == username) | (User.email == email)
+            ))
+            if existing_check:
+                if existing_check.username == username: flash(f"اسم المستخدم '{username}' مستخدم بالفعل.", 'danger')
+                if existing_check.email == email: flash(f"البريد الإلكتروني '{email}' مستخدم بالفعل.", 'danger')
+                return render_template('admin/edit_user.html', user=user)
 
-            if existing_user_check:
-                if existing_user_check.username.lower() == username.lower():
-                     flash(f"اسم المستخدم '{username}' مستخدم بالفعل من قبل مستخدم آخر.", 'danger')
-                if existing_user_check.email == email:
-                     flash(f"البريد الإلكتروني '{email}' مستخدم بالفعل من قبل مستخدم آخر.", 'danger')
-                # Re-render edit form
-                return render_template('admin/edit_user.html', user=user, app_title=APP_TITLE)
-
-        # Update user information
+        # Update User
         try:
             user.username = username
             user.email = email
-            # Prevent admin from accidentally de-admining themselves if they are the only admin?
-            # Add logic here if needed. For now, allow changing own status.
-            user.is_admin = is_admin
+            # Simple check to prevent removing the last admin
+            if user.is_admin and not is_admin:
+                 admin_count = db.session.scalar(db.select(db.func.count(User.id)).filter_by(is_admin=True))
+                 if admin_count <= 1:
+                      flash("لا يمكن إزالة صلاحيات المدير من الحساب الوحيد المتبقي.", "danger")
+                      return render_template('admin/edit_user.html', user=user)
 
+            user.is_admin = is_admin
             if new_password:
                 user.set_password(new_password)
                 logger.info(f"Admin '{current_user.username}' updated password for user '{username}'.")
 
             db.session.commit()
-            logger.info(f"Admin '{current_user.username}' updated user profile for '{username}'.")
+            logger.info(f"Admin '{current_user.username}' updated profile for '{username}'.")
             flash('تم تحديث بيانات المستخدم بنجاح.', 'success')
             return redirect(url_for('admin_users'))
 
         except Exception as e:
             db.session.rollback()
-            logger.exception(f"Error updating user {user_id} in database")
+            logger.exception(f"Error updating user {user_id}")
             flash(f"حدث خطأ أثناء تحديث المستخدم: {str(e)}", 'danger')
-            # Re-render edit form
-            return render_template('admin/edit_user.html', user=user, app_title=APP_TITLE)
+            return render_template('admin/edit_user.html', user=user)
 
-    # Render edit form on GET request
-    return render_template('admin/edit_user.html', user=user, app_title=APP_TITLE)
+    return render_template('admin/edit_user.html', user=user)
 
-@app.route('/admin/users/<int:user_id>/delete', methods=['POST']) # Use POST for destructive actions
+@app.route('/admin/users/<int:user_id>/delete', methods=['POST'])
 @admin_required
 def admin_delete_user(user_id):
     """Handles deletion of a user."""
     user_to_delete = db.session.get(User, user_id)
-
     if not user_to_delete:
-        flash('المستخدم المراد حذفه غير موجود.', 'warning')
+        flash('المستخدم غير موجود.', 'warning')
     elif user_to_delete.id == current_user.id:
         flash('لا يمكنك حذف حسابك الحالي.', 'danger')
     else:
-        # Optional: Check if they are the last admin before deleting?
-        # is_last_admin = user_to_delete.is_admin and db.session.scalar(db.select(db.func.count(User.id)).filter_by(is_admin=True)) == 1
-        # if is_last_admin:
-        #     flash('لا يمكن حذف المدير الوحيد المتبقي.', 'danger')
-        # else:
+        # Check if they are the last admin
+        if user_to_delete.is_admin:
+            admin_count = db.session.scalar(db.select(db.func.count(User.id)).filter_by(is_admin=True))
+            if admin_count <= 1:
+                flash("لا يمكن حذف المدير الوحيد المتبقي.", "danger")
+                return redirect(url_for('admin_users'))
         try:
-            username_deleted = user_to_delete.username # Get username for logging before delete
+            username_deleted = user_to_delete.username
             db.session.delete(user_to_delete)
             db.session.commit()
             logger.info(f"Admin '{current_user.username}' deleted user '{username_deleted}' (ID: {user_id}).")
@@ -1048,25 +916,20 @@ def admin_delete_user(user_id):
 
     return redirect(url_for('admin_users'))
 
-# --- Admin Conversations Management ---
-
 @app.route('/admin/conversations')
 @admin_required
 def admin_conversations():
     """Displays a list of all conversations."""
     try:
-        # Paginate conversations for better performance if many exist
         page = request.args.get('page', 1, type=int)
-        per_page = 20 # Number of conversations per page
-        pagination = db.session.execute(
-            db.select(Conversation).order_by(Conversation.updated_at.desc())
-        ).paginate(page=page, per_page=per_page, error_out=False)
+        per_page = 25 # Conversations per page
+        # Paginate using SQLAlchemy 2.0 style
+        pagination = db.paginate(db.select(Conversation).order_by(Conversation.updated_at.desc()),
+                                 page=page, per_page=per_page, error_out=False)
 
-        conversations = pagination.items
         return render_template('admin/conversations.html',
-                               conversations=conversations,
-                               pagination=pagination,
-                               app_title=APP_TITLE)
+                               conversations=pagination.items, # Use pagination.items
+                               pagination=pagination) # Pass pagination object
     except Exception as e:
         logger.exception("Error loading admin conversations page")
         flash("حدث خطأ أثناء تحميل قائمة المحادثات.", "danger")
@@ -1081,20 +944,17 @@ def admin_view_conversation(conversation_id):
         if not conversation:
             flash('المحادثة غير موجودة.', 'danger')
             return redirect(url_for('admin_conversations'))
-
-        # Fetch ordered messages
+        # Messages are loaded via the relationship and ordered helper
         messages = conversation.get_ordered_messages()
-
         return render_template('admin/view_conversation.html',
                                conversation=conversation,
-                               messages=messages, # Pass messages separately
-                               app_title=APP_TITLE)
+                               messages=messages) # Pass messages explicitly
     except Exception as e:
         logger.exception(f"Error viewing conversation {conversation_id}")
         flash("حدث خطأ أثناء عرض المحادثة.", "danger")
         return redirect(url_for('admin_conversations'))
 
-@app.route('/admin/conversations/<string:conversation_id>/delete', methods=['POST']) # Use POST
+@app.route('/admin/conversations/<string:conversation_id>/delete', methods=['POST'])
 @admin_required
 def admin_delete_conversation(conversation_id):
     """Handles deleting a specific conversation."""
@@ -1103,7 +963,7 @@ def admin_delete_conversation(conversation_id):
         if not conversation:
             flash('المحادثة غير موجودة.', 'warning')
         else:
-            db.session.delete(conversation) # Cascade delete should handle messages
+            db.session.delete(conversation)
             db.session.commit()
             logger.info(f"Admin '{current_user.username}' deleted conversation {conversation_id}.")
             flash('تم حذف المحادثة بنجاح.', 'success')
@@ -1111,43 +971,45 @@ def admin_delete_conversation(conversation_id):
         db.session.rollback()
         logger.exception(f"Error deleting conversation {conversation_id}")
         flash(f"حدث خطأ أثناء حذف المحادثة: {str(e)}", 'danger')
-
     return redirect(url_for('admin_conversations'))
 
-# --- Database Initialization and Admin User Creation ---
 
+# --- Database Initialization and Admin User Creation ---
 def initialize_database():
     """Creates database tables and the first admin user if they don't exist."""
     with app.app_context():
         logger.info("Checking database tables...")
         try:
-            # Create tables based on models
+            # Create tables based on models if they don't exist
+            # Consider using Flask-Migrate for production schema management
             db.create_all()
-            logger.info("Database tables checked/created successfully.")
+            logger.info("Database tables checked/created.")
         except Exception as e:
-            logger.error(f"Error creating database tables: {e}", exc_info=True)
-            # Depending on the error, you might want to exit or handle differently
-            return # Stop if tables can't be created
+            logger.critical(f"CRITICAL: Error creating/checking database tables: {e}", exc_info=True)
+            # If the DB can't be reached/created, the app likely can't function.
+            # You might want to raise the exception or exit.
+            return # Stop initialization if DB fails
 
         # Check if any admin users exist
-        admin_exists = db.session.scalar(db.select(User).filter_by(is_admin=True).limit(1))
+        try:
+            admin_exists = db.session.scalar(db.select(User).filter_by(is_admin=True).limit(1))
 
-        if not admin_exists:
-            logger.info("No admin user found. Creating default admin...")
-            default_admin_username = "admin"
-            default_admin_email = "admin@example.com" # Change this
-            # Generate a strong default password OR retrieve from env var
-            default_admin_password = os.environ.get("DEFAULT_ADMIN_PASSWORD", "YasminAdminChangeMe!")
-            if default_admin_password == "YasminAdminChangeMe!":
-                 logger.warning("Using insecure default admin password. Set DEFAULT_ADMIN_PASSWORD environment variable.")
+            if not admin_exists:
+                logger.info("No admin user found. Creating default admin...")
+                default_admin_username = "admin"
+                default_admin_email = "admin@example.com" # CHANGE THIS
+                # Use environment variable for default password, fallback is insecure
+                default_admin_password = os.environ.get("DEFAULT_ADMIN_PASSWORD")
+                if not default_admin_password:
+                    default_admin_password = "YasminAdminChangeMe!" # INSECURE FALLBACK
+                    logger.warning("DEFAULT_ADMIN_PASSWORD environment variable not set. USING INSECURE DEFAULT PASSWORD. Please set it and change the password immediately after first login.")
 
-            # Ensure the default admin doesn't somehow exist with different case
-            existing_default = db.session.scalar(db.select(User).filter(
-                (User.username.ilike(default_admin_username)) | (User.email == default_admin_email)
-            ))
+                # Final check to ensure default user doesn't exist somehow
+                existing_default = db.session.scalar(db.select(User).filter(
+                    (User.username == default_admin_username) | (User.email == default_admin_email)
+                ))
 
-            if not existing_default:
-                try:
+                if not existing_default:
                     admin = User(
                         username=default_admin_username,
                         email=default_admin_email,
@@ -1157,24 +1019,33 @@ def initialize_database():
                     db.session.add(admin)
                     db.session.commit()
                     logger.info(f"Default admin user '{default_admin_username}' created. PLEASE CHANGE THE DEFAULT PASSWORD!")
-                except Exception as e:
-                    db.session.rollback()
-                    logger.error(f"Failed to create default admin user: {e}", exc_info=True)
+                else:
+                    logger.info("Default admin username/email already exists, skipping creation.")
             else:
-                 logger.info("Default admin username/email already exists, skipping creation.")
-        else:
-            logger.info("Admin user already exists.")
+                logger.info("Admin user already exists. Skipping default admin creation.")
+
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error checking/creating admin user: {e}", exc_info=True)
+
+# Add a context processor to make 'now' available in templates
+@app.context_processor
+def inject_now():
+    return {'now': datetime.utcnow()}
 
 # --- Main Execution ---
 if __name__ == '__main__':
-    # Create tables and default admin before running the app
+    # Create tables and default admin *within app context* before running
     initialize_database()
 
-    # Use Gunicorn or Waitress for production instead of Flask's development server
-    # Get port from environment variable for deployment flexibility (e.g., Render)
+    # Get port from environment variable for deployment platforms like Render
     port = int(os.environ.get("PORT", 5000))
-    # Set debug=False for production
+    # Set debug mode based on FLASK_DEBUG env var (False by default)
     debug_mode = os.environ.get("FLASK_DEBUG", "False").lower() == "true"
-    logger.info(f"Starting Flask application on port {port} with debug mode: {debug_mode}")
-    # host='0.0.0.0' makes it accessible externally (needed for containers/deployment)
+
+    logger.info(f"Starting Flask application on host 0.0.0.0, port {port} with debug mode: {debug_mode}")
+    # Use host='0.0.0.0' to be accessible externally (required for containers/Render)
+    # Turn OFF debug mode in production for security and performance
     app.run(host='0.0.0.0', port=port, debug=debug_mode)
+
+# --- END OF REFACTORED app.py ---
