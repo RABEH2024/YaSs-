@@ -1,0 +1,109 @@
+{% extends 'admin/base.html' %}
+
+{% block title %}الرئيسية - لوحة تحكم ياسمين GPT{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Page Title -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3">لوحة القيادة</h1>
+        <div>
+            <a href="{{ url_for('index') }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-external-link-alt"></i> عرض الموقع
+            </a>
+        </div>
+    </div>
+    
+    <!-- Stats Cards -->
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card stats-card">
+                <i class="fas fa-users"></i>
+                <div class="stats-value">{{ user_count }}</div>
+                <div class="stats-title">المستخدمين</div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card stats-card">
+                <i class="fas fa-comments"></i>
+                <div class="stats-value">{{ conversation_count }}</div>
+                <div class="stats-title">المحادثات</div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card stats-card">
+                <i class="fas fa-comment-dots"></i>
+                <div class="stats-value">{{ message_count }}</div>
+                <div class="stats-title">الرسائل</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Recent Conversations -->
+    <div class="card">
+        <div class="card-header">
+            <h5 class="card-title mb-0">أحدث المحادثات</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>العنوان</th>
+                            <th>تاريخ الإنشاء</th>
+                            <th>آخر تحديث</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if recent_conversations %}
+                            {% for conversation in recent_conversations %}
+                                <tr>
+                                    <td>{{ conversation.title }}</td>
+                                    <td>{{ conversation.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                                    <td>{{ conversation.updated_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                                    <td>
+                                        <a href="{{ url_for('admin_view_conversation', conversation_id=conversation.id) }}" class="btn btn-sm btn-info">
+                                            <i class="fas fa-eye"></i> عرض
+                                        </a>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="4" class="text-center">لا توجد محادثات حتى الآن</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-3">
+                <a href="{{ url_for('admin_conversations') }}" class="btn btn-primary">
+                    <i class="fas fa-list"></i> عرض جميع المحادثات
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="card-title mb-0">إجراءات سريعة</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <a href="{{ url_for('admin_users') }}" class="btn btn-lg btn-outline-primary w-100 mb-3">
+                        <i class="fas fa-users me-2"></i> إدارة المستخدمين
+                    </a>
+                </div>
+                <div class="col-md-6">
+                    <a href="{{ url_for('admin_conversations') }}" class="btn btn-lg btn-outline-secondary w-100 mb-3">
+                        <i class="fas fa-comments me-2"></i> إدارة المحادثات
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
