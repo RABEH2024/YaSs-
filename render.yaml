@@ -1,15 +1,43 @@
+# --- START OF FINAL render.yaml ---
 services:
   - type: web
-    name: yasmin-gpt
+    name: yasmin-gpt         # Choose a name for your service
     runtime: python
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "gunicorn app:app"
+    plan: free               # Or choose a paid plan for more resources
+    buildCommand: |          # Multi-line build command
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      # Automatically apply database migrations during build
+      flask db upgrade
+    startCommand: "gunicorn app:app" # Command to start the application
     envVars:
+      - key: PYTHON_VERSION      # Specify your Python version
+        value: 3.11.5          # Match your development environment
       - key: DATABASE_URL
-        value: sqlite+pysqlite:///local.db
-      - key: SESSION_SECRET
-        generateValue: true
+        fromDatabase:          # Connect directly to Render PostgreSQL
+          name: yasmin-db      # *** REPLACE with the name of YOUR Render database ***
+          property: connectionString
+      - key: SESSION_SECRET      # Secure session key
+        generateValue: true    # Render generates a secure secret automatically
+      - key: APP_URL             # Public URL of your application
+        value: https://${RENDER_EXTERNAL_HOSTNAME} # Uses Render's default domain
       - key: OPENROUTER_API_KEY
-        sync: false
+        sync: false            # Set value manually in Render dashboard (Secret)
       - key: GEMINI_API_KEY
-        sync: false
+        sync: false            # Set value manually in Render dashboard (Secret)
+      # - key: DEFAULT_ADMIN_PASSWORD # Optional: For create-admin command
+      #   sync: false            # Set value manually in Render dashboard (Secret)
+      - key: FLASK_APP           # Needed for Flask CLI commands (like db upgrade)
+        value: app.py
+      - key: LOG_LEVEL           # Control application log verbosity
+        value: INFO            # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+# Define the PostgreSQL database resource (Render will create this if it doesn't exist)
+# Make sure the 'name' here matches the 'name' under fromDatabase above.
+databases:
+  - name: yasmin-db            # *** REPLACE with the name of YOUR Render database ***
+    databaseName: yasmin_db    # Name of the actual database inside PostgreSQL
+    user: yasmin_user          # Username for the database connection
+    plan: free               # Or choose a paid plan
+    region: frankfurt        # Choose the region closest to you/your users
+# --- END OF FINAL render.yaml ---
