@@ -1,4 +1,47 @@
 import os
+
+# حل مشكلة DATABASE_URL قبل أي شيء
+if not os.environ.get("DATABASE_URL"):
+    os.environ["DATABASE_URL"] = "sqlite:///local.db"
+
+import logging
+import requests
+import json
+import uuid
+from datetime import datetime
+from flask import Flask, request, jsonify, render_template, redirect, url_for, flash, session
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.orm import DeclarativeBase
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
+
+# إعداد السجل
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+# قاعدة SQLAlchemy
+class Base(DeclarativeBase):
+    pass
+
+app = Flask(__name__)
+app.secret_key = os.environ.get("SESSION_SECRET", "yasmin-gpt-secret-key")
+
+# إعداد قاعدة البيانات
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_recycle": 300,
+    "pool_pre_ping": True,
+}
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+db = SQLAlchemy(model_class=Base)
+db.init_app(app)
+# ... [باقي الكود كما هو من ملفك الحالي] ...
+# يمكنك نسخ كل الدوال الموجودة مثل chat() و admin routes وغيرها دون تغيير.
+# قاعدة
+# ... [باقي الكود كما هو من ملفك الحالي] ...
+# يمكنك نسخ كل الدوال الموجودة مثل chat() و admin routes وغيرها دون تغيير.
 import logging
 import requests
 import json
