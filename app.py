@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 # قاعدة للنماذج
 class Base(DeclarativeBase):
     pass
-
+with app.app_context():
+    db.create_all()
 # إعداد تطبيق Flask
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "yasmin-gpt-secret-key")
