@@ -1,7 +1,7 @@
 from app import db
 from datetime import datetime
 
-# جدول المحادثات
+# نموذج جدول المحادثات
 class Conversation(db.Model):
     __tablename__ = 'conversations'
 
@@ -10,17 +10,8 @@ class Conversation(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # علاقة واحد إلى متعدد مع الرسائل
+    # علاقة بين المحادثة والرسائل
     messages = db.relationship('Message', backref='conversation', lazy=True, cascade="all, delete-orphan")
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "title": self.title,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "messages": [msg.to_dict() for msg in self.messages]
-        }
 
     def add_message(self, role, content):
         """إضافة رسالة للمحادثة"""
@@ -33,20 +24,30 @@ class Conversation(db.Model):
         self.updated_at = datetime.utcnow()
         return message
 
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "title": self.title,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "messages": [msg.to_dict() for msg in self.messages]
+        }
 
-# جدول الرسائل
+# نموذج جدول الرسائل
 class Message(db.Model):
     __tablename__ = 'messages'
 
     id = db.Column(db.Integer, primary_key=True)
-    role = db.Column(db.String(20), nullable=False)  # 'user' أو 'assistant'
+    role = db.Column(db.String(20), nullable=False)  # إما user أو assistant
     content = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    # علاقة بالجدول Conversation
+    # مفتاح خارجي يربط الرسالة بالمحادثة
     conversation_id = db.Column(db.String(36), db.ForeignKey('conversations.id'), nullable=False)
 
     def to_dict(self):
         return {
             "role": self.role,
             "content": self.content,
+            "created_at": self.created_at.isoformat() if self.created_at else None
+        }
