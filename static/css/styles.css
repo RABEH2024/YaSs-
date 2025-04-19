@@ -49,7 +49,7 @@
     --border-radius: 8px;
     --spacing-xs: 4px;
     --spacing-sm: 8px;
-    --spacing-md: 12px; /* تقليل المسافات قليلاً */
+    --spacing-md: 12px;
     --spacing-lg: 20px;
     --transition-speed: 0.2s;
 }
@@ -89,7 +89,7 @@ body.dark-mode .scrollable::-webkit-scrollbar-thumb:hover { background-color: #6
 #settings-sidebar {
     width: 280px; height: 100%; background-color: var(--bg-light);
     border-left: 1px solid var(--border-light); padding: var(--spacing-md);
-    display: flex; flex-direction: column; overflow: hidden; /* منع التمرير الرئيسي */
+    display: flex; flex-direction: column; overflow: hidden;
     transition: background-color var(--transition-speed), border-color var(--transition-speed), transform 0.3s ease-in-out, width 0.3s ease-in-out;
     z-index: 10; flex-shrink: 0;
 }
@@ -100,7 +100,7 @@ body.dark-mode .sidebar-header { border-bottom-color: var(--border-dark); }
 body.dark-mode .sidebar-header h2 { color: var(--primary-dark); }
 .sidebar-icon-title { font-size: 1.2em; }
 .sidebar-title { transition: opacity 0.2s ease-in-out; }
-.sidebar-section { margin-bottom: var(--spacing-lg); flex-shrink: 0; } /* منع التقلص */
+.sidebar-section { margin-bottom: var(--spacing-lg); flex-shrink: 0; }
 .sidebar-section h3 { margin-bottom: var(--spacing-sm); font-size: 0.8rem; font-weight: 600; color: var(--text-light); opacity: 0.7; text-transform: uppercase; display: flex; align-items: center; gap: var(--spacing-sm); transition: opacity 0.2s ease-in-out; }
 body.dark-mode .sidebar-section h3 { color: var(--text-dark); }
 .sidebar-icon { width: 16px; text-align: center; }
@@ -148,16 +148,12 @@ body.dark-mode .sidebar-footer { border-top-color: var(--border-dark); color: va
 .social-links a:hover { color: var(--primary-light); }
 body.dark-mode .social-links a:hover { color: var(--primary-dark); }
 /* Sidebar Collapsed State */
-#settings-sidebar.sidebar-collapsed { width: 0; padding: 0; border-left: none; overflow: hidden; }
+#settings-sidebar.sidebar-collapsed { width: 60px; padding: var(--spacing-md) var(--spacing-sm); border-left: none; }
 body.dark-mode #settings-sidebar.sidebar-collapsed { border-left: none; }
 #settings-sidebar.sidebar-collapsed > *:not(.sidebar-header) { display: none; }
-#settings-sidebar.sidebar-collapsed .sidebar-header { padding: var(--spacing-md); border-bottom: none; }
-#settings-sidebar.sidebar-collapsed .sidebar-title { opacity: 0; }
-#settings-sidebar.sidebar-collapsed .sidebar-section h3 span,
-#settings-sidebar.sidebar-collapsed .setting-item,
-#settings-sidebar.sidebar-collapsed .primary-button span,
-#settings-sidebar.sidebar-collapsed .sidebar-footer span,
-#settings-sidebar.sidebar-collapsed .social-links { opacity: 0; pointer-events: none; }
+#settings-sidebar.sidebar-collapsed .sidebar-header { padding: 0; padding-bottom: var(--spacing-lg); border-bottom: none; justify-content: center; }
+#settings-sidebar.sidebar-collapsed .sidebar-header h2 { display: none; }
+#settings-sidebar.sidebar-collapsed .toggle-sidebar-btn { margin: 0 auto; }
 .toggle-sidebar-btn i { transition: transform 0.3s ease-in-out; }
 #settings-sidebar.sidebar-collapsed .toggle-sidebar-btn i { transform: rotate(180deg); }
 
@@ -175,8 +171,8 @@ body.dark-mode .error-bubble { background-color: var(--error-bubble-dark); color
 .message-actions { position: absolute; bottom: -22px; left: 8px; display: flex; gap: var(--spacing-xs); opacity: 0; visibility: hidden; transition: opacity 0.2s, visibility 0.2s; z-index: 1; }
 .user-bubble .message-actions { left: auto; right: 8px; }
 .message-bubble:hover .message-actions { opacity: 1; visibility: visible; }
-.message-actions button { background: rgba(var(--card-bg-rgb, 255 255 255) / 0.7); border: 1px solid var(--border-light); color: var(--icon-muted-light); cursor: pointer; padding: 3px 5px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; transition: all var(--transition-speed); backdrop-filter: blur(2px); }
-body.dark-mode .message-actions button { background: rgba(31, 41, 55, 0.7); border-color: var(--border-dark); color: var(--icon-muted-dark); } /* gray-800 with opacity */
+.message-actions button { background: rgba(255, 255, 255, 0.7); border: 1px solid var(--border-light); color: var(--icon-muted-light); cursor: pointer; padding: 3px 5px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; transition: all var(--transition-speed); backdrop-filter: blur(2px); }
+body.dark-mode .message-actions button { background: rgba(31, 41, 55, 0.7); border-color: var(--border-dark); color: var(--icon-muted-dark); }
 .message-actions button:hover { color: var(--primary-light); background-color: rgba(79, 70, 229, 0.1); border-color: currentColor; }
 body.dark-mode .message-actions button:hover { color: var(--primary-dark); background-color: rgba(129, 140, 248, 0.1); }
 .message-actions button i { font-size: 0.8em; }
@@ -288,48 +284,37 @@ body.dark-mode .spinner { border-top-color: var(--primary-dark); border-left-col
     #input-wrapper { gap: var(--spacing-xs); }
     .input-icon-button { width: 40px; height: 40px; }
     #message-input { min-height: 40px; padding: 8px var(--spacing-sm); }
-    .sidebar-title, .sidebar-section h3 span, .setting-item, .primary-button span, .sidebar-footer span, .social-links {
-        transition: opacity 0.1s ease-out; /* أسرع */
-    }
+    /* إخفاء النصوص في الشريط الجانبي عند الطي (إذا تم تطبيقه على الجوال) */
     #settings-sidebar.sidebar-collapsed .sidebar-title,
     #settings-sidebar.sidebar-collapsed .sidebar-section h3 span,
     #settings-sidebar.sidebar-collapsed .setting-item,
     #settings-sidebar.sidebar-collapsed .primary-button span,
     #settings-sidebar.sidebar-collapsed .sidebar-footer span,
-    #settings-sidebar.sidebar-collapsed .social-links {
-        opacity: 0;
-        pointer-events: none;
-        width: 0;
-        overflow: hidden;
-    }
-     #settings-sidebar.sidebar-collapsed {
-        width: 60px; /* عرض الشريط الجانبي عند الطي */
-        padding: var(--spacing-md) var(--spacing-sm);
-    }
-     #settings-sidebar.sidebar-collapsed .sidebar-header {
-        padding: 0;
-        padding-bottom: var(--spacing-lg); /* مسافة أسفل الهيدر */
-        justify-content: center; /* توسيط زر التبديل */
-    }
-     #settings-sidebar.sidebar-collapsed .sidebar-header h2 {
-         display: none; /* إخفاء العنوان */
-     }
-     #settings-sidebar.sidebar-collapsed .toggle-sidebar-btn {
-         margin: 0 auto; /* توسيط الزر */
-     }
-     #settings-sidebar.sidebar-collapsed .primary-button {
-         width: 44px; /* جعل الزر مربعًا */
-         padding: 0;
-         justify-content: center;
-     }
-     #settings-sidebar.sidebar-collapsed .sidebar-section h3 {
-         justify-content: center; /* توسيط الأيقونة */
-     }
-     #settings-sidebar.sidebar-collapsed .conversations-container,
-     #settings-sidebar.sidebar-collapsed .settings-section > *:not(h3) {
-         display: none; /* إخفاء المحتوى عند الطي */
-     }
-     #settings-sidebar.sidebar-collapsed .sidebar-footer {
-         justify-content: center; /* توسيط المحتوى السفلي */
-     }
+    #settings-sidebar.sidebar-collapsed .social-links { display: none; }
+}
+
+/* تحسينات إضافية */
+pre {
+    background-color: var(--secondary-light);
+    padding: var(--spacing-md);
+    border-radius: var(--border-radius);
+    overflow-x: auto;
+    margin: var(--spacing-sm) 0;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.85rem;
+    border: 1px solid var(--border-light);
+}
+body.dark-mode pre {
+    background-color: var(--secondary-dark);
+    border-color: var(--border-dark);
+}
+code:not(pre > code) { /* تنسيق الكود المضمن */
+    background-color: var(--secondary-light);
+    padding: 2px 4px;
+    border-radius: 4px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.85em;
+}
+body.dark-mode code:not(pre > code) {
+    background-color: var(--secondary-dark);
 }
