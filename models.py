@@ -1,46 +1,68 @@
+from app import db
 from datetime import datetime
-from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import String, Text, DateTime, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from flask_login import UserMixin
+from werkzeug.security import generate_password_hash, check_password_hash
 
-db = SQLAlchemy()
+# User model with admin capabilities
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(64), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(256), nullable=False)
+    is_admin = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+    
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+    
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "username": self.username,
+            "email": self.email,
+            "is_admin": self.is_admin,
+            "created_at": self.created_at.isoformat() if self.created_at else None
+        }
 
+# Database models for conversations
 class Conversation(db.Model):
-    __tablename__ = 'conversations'
-
-    id: Mapped[str] = mapped_column(String(100), primary_key=True)
-    title: Mapped[str] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    messages: Mapped[list["Message"]] = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
-
-    def add_message(self, role: str, content: str):
-        new_message = Message(role=role, content=content, conversation_id=self.id)
-        db.session.add(new_message)
-
+    id = db.Column(db.String(36), primary_key=True)  # UUID format
+    title = db.Column(db.String(100), nullable=False, default="محادثة جديدة")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # One-to-many relationship with Message
+    messages = db.relationship('Message', backref='conversation', lazy=True, cascade="all, delete-orphan")
+    
     def to_dict(self):
         return {
             "id": self.id,
             "title": self.title,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "messages": [
-                {
-                    "role": msg.role,
-                    "content": msg.content,
-                    "created_at": msg.created_at.isoformat() if msg.created_at else None
-                } for msg in self.messages
-            ]
+            "messages": [msg.to_dict() for msg in self.messages]
         }
+    
+    def add_message(self, role, content):
+        """Helper method to add a message to this conversation"""
+        message = Message(role=role, content=content, conversation_id=self.id)
+        db.session.add(message)
+        self.updated_at = datetime.utcnow()
+        return message
 
 class Message(db.Model):
-    __tablename__ = 'messages'
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    role: Mapped[str] = mapped_column(String(10))  # 'user' or 'assistant'
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-    conversation_id: Mapped[str] = mapped_column(String(100), ForeignKey('conversations.id'))
-    conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="messages")
+    id = db.Column(db.Integer, primary_key=True)
+    role = db.Column(db.String(20), nullable=False)  # 'user' or 'assistant'
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    conversation_id = db.Column(db.String(36), db.ForeignKey('conversation.id'), nullable=False)
+    
+    def to_dict(self):
+        return {
+            "role": self.role,
+            "content": self.content,
+            "created_at": self.created_at.isoformat() if self.created_at else None
+        }
