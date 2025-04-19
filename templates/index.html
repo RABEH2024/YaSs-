@@ -2,144 +2,137 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Yasmin GPT Chat</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Fonts for better Arabic support -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- استخدام متغير العنوان من Flask -->
+    <title>{{ app_title }}</title>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <!-- Google Font (Cairo) -->
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Link to CSS (using Flask's url_for) -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <!-- Favicon (optional) -->
+    <!-- <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}"> -->
 </head>
-<body>
-    <!-- Main Container -->
+<body class="dark-mode"> <!-- البدء بالوضع الداكن افتراضيًا -->
+
     <div class="app-container">
-        <!-- Sidebar for settings and conversations -->
-        <div id="settings-sidebar">
-            <h2>ياسمين GPT</h2>
-            
-            <!-- New Conversation Button -->
+        <!-- Sidebar -->
+        <aside id="settings-sidebar" class="sidebar-collapsed">
+            <div class="sidebar-header">
+                <h2><i class="fas fa-robot sidebar-icon-title"></i><span class="sidebar-title">{{ app_title }}</span></h2>
+                <button id="toggle-sidebar-desktop" class="icon-button toggle-sidebar-btn" title="فتح/إغلاق الإعدادات">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+            </div>
+
             <button id="new-conversation" class="primary-button">
-                <i class="fas fa-plus"></i> محادثة جديدة
+                <i class="fas fa-plus"></i> <span>محادثة جديدة</span>
             </button>
-            
-            <div class="sidebar-section">
-                <h3>المحادثات</h3>
-                <div id="conversations-list" class="conversations-container">
-                    <!-- Conversations will be listed here dynamically -->
+
+            <div class="sidebar-section conversations-section">
+                <h3><i class="fas fa-comments sidebar-icon"></i><span>المحادثات</span></h3>
+                <div id="conversations-list" class="conversations-container scrollable">
                     <div class="empty-state">لا توجد محادثات سابقة</div>
+                    <!-- Conversation items added here by JS -->
                 </div>
             </div>
-            
-            <div class="sidebar-section">
-                <h3>الإعدادات</h3>
-                
-                <!-- Model Selection -->
+
+            <div class="sidebar-section settings-section">
+                <h3><i class="fas fa-cog sidebar-icon"></i><span>الإعدادات</span></h3>
                 <div class="setting-item">
                     <label for="model-select">النموذج:</label>
-                    <select id="model-select">
-                        <option value="mistralai/mistral-7b-instruct">Mistral 7B</option>
-                        <!-- Other models will be loaded dynamically -->
+                    <select id="model-select" class="setting-input">
+                        <!-- Models loaded dynamically by JS -->
+                         <option value="google/gemini-1.5-flash">Gemini 1.5 Flash (أسرع)</option>
+                         <option value="mistralai/Mistral-7B-Instruct-v0.1">Mistral 7B Instruct</option>
+                         <option value="google/gemma-7b-it">Gemma 7B IT</option>
+                         <option value="meta-llama/Meta-Llama-3-8B-Instruct">LLaMA 3 8B Instruct</option>
+                         <option value="openai/gpt-3.5-turbo">GPT-3.5 Turbo (OpenRouter)</option>
+                         <option value="anthropic/claude-3-haiku">Claude 3 Haiku (OpenRouter)</option>
                     </select>
+                    <small class="setting-hint">اختر نموذج الذكاء الاصطناعي.</small>
                 </div>
-                
-                <!-- Temperature Control -->
                 <div class="setting-item">
-                    <label for="temperature-slider">درجة الإبداع:</label>
+                    <label for="temperature-slider">درجة الإبداع (Temperature):</label>
                     <div class="slider-container">
                         <input type="range" id="temperature-slider" min="0" max="1" step="0.1" value="0.7">
                         <span id="temperature-value">0.7</span>
                     </div>
+                     <small class="setting-hint">قيمة أعلى = ردود أكثر إبداعًا.</small>
                 </div>
-                
-                <!-- Max Tokens -->
-                <div class="setting-item">
-                    <label for="max-tokens-input">الحد الأقصى للرموز:</label>
-                    <input type="number" id="max-tokens-input" value="512" min="50" max="4000">
-                </div>
-                
-                <!-- Dark Mode Toggle -->
-                <div class="setting-item">
-                    <label for="dark-mode-toggle">الوضع الليلي:</label>
-                    <label class="switch">
-                        <input type="checkbox" id="dark-mode-toggle">
-                        <span class="slider round"></span>
-                    </label>
-                </div>
-                
-                <!-- Text-to-Speech Toggle -->
-                <div class="setting-item">
+                 <div class="setting-item toggle-item">
                     <label for="tts-toggle">قراءة الردود صوتياً:</label>
                     <label class="switch">
-                        <input type="checkbox" id="tts-toggle">
+                        <input type="checkbox" id="tts-toggle" checked>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <div class="setting-item toggle-item">
+                    <label for="dark-mode-toggle">الوضع الليلي:</label>
+                    <label class="switch">
+                        <input type="checkbox" id="dark-mode-toggle" checked>
                         <span class="slider round"></span>
                     </label>
                 </div>
             </div>
-            
+
             <div class="sidebar-footer">
-                <span>تم تطويره بواسطة ياسمين</span>
-                <button id="toggle-sidebar" class="icon-button">
-                    <i class="fas fa-chevron-right"></i>
-                </button>
+                <span class="app-version">الإصدار 1.3.0</span>
+                 <!-- Social Links -->
+                <div class="social-links">
+                    <a href="#" target="_blank" rel="noopener noreferrer" title="فيسبوك" class="icon-button"><i class="fab fa-facebook-f"></i></a>
+                    <a href="#" target="_blank" rel="noopener noreferrer" title="منصة إكس" class="icon-button"><i class="fab fa-twitter"></i></a>
+                    <a href="#" target="_blank" rel="noopener noreferrer" title="يوتيوب" class="icon-button"><i class="fab fa-youtube"></i></a>
+                </div>
             </div>
-        </div>
-        
+        </aside>
+
         <!-- Main Chat Area -->
-        <div id="chat-container">
-            <!-- Offline Indicator -->
+        <main id="chat-container">
             <div id="offline-indicator">
                 <i class="fas fa-exclamation-triangle"></i>
-                أنت غير متصل بالإنترنت
+                <span>أنت غير متصل بالإنترنت. الردود ستكون محدودة.</span>
             </div>
-            
-            <!-- Messages Container -->
-            <div id="messages">
-                <!-- Welcome message -->
-                <div class="message-bubble ai-bubble">
-                    <p>السلام عليكم! أنا ياسمين، مساعدتك الرقمية بالعربية. كيف يمكنني مساعدتك اليوم؟</p>
-                    <div class="message-actions">
-                        <button class="copy-btn" title="نسخ"><i class="fas fa-copy"></i></button>
-                        <button class="speak-btn" title="استماع"><i class="fas fa-volume-up"></i></button>
-                    </div>
-                </div>
-                
-                <!-- Messages will be added here -->
+            <div id="messages" class="scrollable">
+                <!-- Messages will be dynamically added here by JS -->
             </div>
-            
-            <!-- Input Area -->
             <div id="input-area">
-                <div id="input-container">
-                    <textarea id="message-input" placeholder="اكتب رسالتك هنا... (Enter للإرسال، Shift+Enter لإضافة سطر)"></textarea>
-                    <button id="send-button">
+                <div id="input-wrapper">
+                     <button id="mic-button" class="icon-button input-icon-button" title="تحدث (قد لا يكون مدعومًا)">
+                        <i class="fas fa-microphone"></i>
+                    </button>
+                     <button id="stop-mic-button" class="icon-button input-icon-button mic-active" title="إيقاف التسجيل" style="display: none;">
+                        <i class="fas fa-stop-circle"></i>
+                    </button>
+                    <textarea id="message-input" placeholder="اكتب رسالتك هنا..." rows="1"></textarea>
+                    <button id="send-button" class="icon-button input-icon-button" title="إرسال">
                         <i class="fas fa-paper-plane"></i>
                     </button>
                 </div>
-                <div class="input-footer">
+                 <div class="input-footer">
                     <span class="typing-hint">Enter للإرسال • Shift+Enter لسطر جديد</span>
-                    <button id="mobile-settings" class="icon-button">
-                        <i class="fas fa-cog"></i>
+                    <button id="mobile-settings-button" class="icon-button mobile-only" title="الإعدادات">
+                        <i class="fas fa-bars"></i> <!-- تغيير الأيقونة لتبدو كقائمة -->
                     </button>
                 </div>
             </div>
-        </div>
+        </main>
     </div>
-    
-    <!-- Mobile Menu Button (only visible on small screens) -->
-    <button id="mobile-menu" class="icon-button">
-        <i class="fas fa-bars"></i>
-    </button>
-    
+
     <!-- Confirmation Modal -->
     <div id="confirm-modal" class="modal">
         <div class="modal-content">
-            <h3>تأكيد</h3>
-            <p id="confirm-message">هل أنت متأكد من أنك تريد الحذف؟</p>
+            <h3>تأكيد الحذف</h3>
+            <p id="confirm-message">هل أنت متأكد من حذف هذه المحادثة؟</p>
             <div class="modal-buttons">
-                <button id="confirm-cancel">إلغاء</button>
-                <button id="confirm-ok" class="danger-button">تأكيد</button>
+                <button id="confirm-cancel" class="secondary-button">إلغاء</button>
+                <button id="confirm-ok" class="danger-button">حذف</button>
             </div>
         </div>
     </div>
-    
+
+    <!-- JavaScript (using Flask's url_for) -->
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
