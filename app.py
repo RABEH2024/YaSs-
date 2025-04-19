@@ -1,42 +1,62 @@
-import os
-
-# حل مشكلة DATABASE_URL قبل أي شيء
-if not os.environ.get("DATABASE_URL"):
-    os.environ["DATABASE_URL"] = "sqlite:///local.db"
-
-import logging
-import requests
-import json
-import uuid
-from datetime import datetime
-from flask import Flask, request, jsonify, render_template, redirect, url_for, flash, session
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.orm import DeclarativeBase
-from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from werkzeug.security import generate_password_hash, check_password_hash
-from functools import wraps
+from flask_login import UserMixin
+from datetime import datetime
 
-# إعداد السجل
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+db = SQLAlchemy()
 
-# قاعدة SQLAlchemy
-class Base(DeclarativeBase):
-    pass
+class User(UserMixin, db.Model):
+    __tablename__ = "users"
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(64), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(128), nullable=False)
+    is_admin = db.Column(db.Boolean, default=False)
 
-app = Flask(__name__)
-app.secret_key = os.environ.get("SESSION_SECRET", "yasmin-gpt-secret-key")
+    def set_password(self, password):
+        from werkzeug.security import generate_password_hash
+        self.password_hash = generate_password_hash(password)
 
-# إعداد قاعدة البيانات
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
-app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-    "pool_recycle": 300,
-    "pool_pre_ping": True,
-}
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    def check_password(self, password):
+        from werkzeug.security import check_password_hash
+        return check_password_hash(self.password_hash, password)
 
-db = SQLAlchemy(model_class=Base)
-db.init_app(app)
+    def get_id(self):
+        return str(self.id)
+
+class Conversation(db.Model):
+    __tablename__ = "conversations"
+    id = db.Column(db.String, primary_key=True)
+    title = db.Column(db.String(255))
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    messages = db.relationship("Message", backref="conversation", lazy=True)
+
+    def add_message(self, role, content):
+        message = Message(conversation_id=self.id, role=role, content=content)
+        db.session.add(message)
+        self.updated_at = datetime.utcnow()
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "title": self.title,
+            "messages": [msg.to_dict() for msg in self.messages],
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+        }
+
+class Message(db.Model):
+    __tablename__ = "messages"
+    id = db.Column(db.Integer, primary_key=True)
+    conversation_id = db.Column(db.String, db.ForeignKey("conversations.id"), nullable=False)
+    role = db.Column(db.String(50))
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "role": self.role,
+            "content": self.content,
+            "created_at": self.created_at.isoformat()
+        }
 # ... [باقي الكود كما هو من ملفك الحالي] ...
 # يمكنك نسخ كل الدوال الموجودة مثل chat() و admin routes وغيرها دون تغيير.
 # قاعدة
