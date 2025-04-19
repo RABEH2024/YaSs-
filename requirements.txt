@@ -1,6 +1,28 @@
-flask
-flask_sqlalchemy
-flask_login
-gunicorn
-requests
-email-validator==2.1.0
+# Flask Framework
+flask==2.3.3
+Werkzeug==2.3.7           # Explicitly pin Werkzeug (used by Flask)
+Jinja2==3.1.3             # Explicitly pin Jinja2 (used by Flask)
+itsdangerous==2.1.2       # Explicitly pin itsdangerous (used by Flask)
+click==8.1.7              # Explicitly pin Click (used by Flask CLI)
+MarkupSafe==2.1.5         # Explicitly pin MarkupSafe (used by Jinja2)
+
+# Database ORM and Adapter
+SQLAlchemy==2.0.29        # Core ORM, compatible with Flask-SQLAlchemy 3.x
+Flask-SQLAlchemy==3.1.1
+psycopg2-binary==2.9.9    # PostgreSQL adapter (binary version is usually easier)
+
+# Authentication
+Flask-Login==0.6.3
+
+# HTTP Requests
+requests==2.31.0
+
+# WSGI Server (for deployment)
+gunicorn==21.2.0          # Common and stable WSGI server
+
+# Optional: For loading .env files during local development
+python-dotenv==1.0.1
+
+# Optional: For database migrations (Highly Recommended)
+Flask-Migrate==4.0.7
+alembic==1.13.1           # Dependency for Flask-Migrate
